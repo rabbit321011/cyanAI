@@ -1,0 +1,9 @@
+时间: 2026/2/23 20:57:15
+上下文: loadInitialEvents 主函数
+错误信息: File not found: E:\MyProject\cyanAI\nodeServer\src\library_source.ini
+堆栈跟踪:
+Error: File not found: E:\MyProject\cyanAI\nodeServer\src\library_source.ini
+    at readIni (E:\MyProject\cyanAI\nodeServer\src\utility\file_operation\read_ini.ts:6:15)
+    at loadInitialEvents (E:\MyProject\cyanAI\nodeServer\src\component\events\event_loader.ts:88:36)
+    at runTests (E:\MyProject\cyanAI\nodeServer\test\20260223_203714\test_event_loader.ts:141:20)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
