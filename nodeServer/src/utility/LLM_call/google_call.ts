@@ -24,13 +24,34 @@ export interface Tool {
 
 export interface Part {
   text?: string;
-  inlineData?: { mimeType: string; data: string }; 
-  functionCall?: { name: string; args: any };
-  functionResponse?: { name: string; response: any };
+  inlineData?: { 
+    mimeType: string; 
+    data: string; 
+  };
+  fileData?: { 
+    mimeType: string; 
+    fileUri: string; 
+  };
+  functionCall?: { 
+    name: string; 
+    args: any; 
+  };
+  functionResponse?: { 
+    name: string; 
+    response: any; 
+  };
+  executableCode?: { 
+    language: 'PYTHON' | string; 
+    code: string; 
+  };
+  codeExecutionResult?: { 
+    outcome: 'OUTCOME_OK' | 'OUTCOME_FAILED' | string; 
+    output: string; 
+  };
 }
 
 export interface Content {
-  role: 'user' | 'model' | 'function'; 
+  role: string; 
   parts: Part[];
 }
 

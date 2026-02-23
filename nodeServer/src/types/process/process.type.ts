@@ -21,8 +21,8 @@ export interface Message {
     time:string;//这是基于cyanTime的标准时间字符串，如果role_type==function,这里为空
     file:string[];//这是附带的文件,是一个数组，每个成员都是一个完整的文件路径，如果role_type==function,这里为空
     inline:inlineData[];//这是附带的内联文件，如果role_type==function,这里为空
-    toolsCalls?:functionCall[];//这是做出的functionCall，如果role_type==function,这里为空
-    toolsResponse?:functionResponse[];//这是回答的functionResponse，如果role_type!=function,这里为空
+    toolsCalls:functionCall[];//这是做出的functionCall，如果role_type==function,这里为空
+    toolsResponse:functionResponse[];//这是回答的functionResponse，如果role_type!=function,这里为空
 }
 export interface MemoryState{//这玩意需要自行配合保存时间戳才能用哈
     R:number,//记忆强度衰减

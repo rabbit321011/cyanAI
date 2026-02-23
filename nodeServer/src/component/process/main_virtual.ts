@@ -2,8 +2,10 @@
 import {inlineData,functionCall,functionResponse,Message,MemoryState,LinesP,EventOutputItem} from '../../types/process/process.type'
 import {readIni} from '../../utility/file_operation/read_ini'
 import {loadInitialEvents} from '../events/event_loader'
+import {now} from '../../utility/time/cyan_time'
 import fs from 'fs';
 import path from 'path';
+import { callGoogleLLM, EasyGeminiRequest } from '../../utility/LLM_call/google_call';
 export interface workspace_ent{
     index:string,//以ws开头，然后是序号
     current:string//这里写着%[文件的完整路径]或者直接是文件内容
@@ -43,6 +45,7 @@ export interface pulled_ent{
 export interface step_ent{
     index:string,//以sp开头，然后是数字
     status:string,//可以是pending,processing,completed其中之一
+    current:string//计划的内容
 }
 export interface total_status{
     system:{
@@ -59,6 +62,38 @@ export interface total_status{
     }
     context:Message[]//这个就直接是一个Message数组了
 }
+export interface content_unit{
+    role:string,
+    parts:part_unit[]
+}
+export interface part_unit {
+  text?: string;
+  inlineData?: { 
+    mimeType: string; 
+    data: string; 
+  };
+  fileData?: { 
+    mimeType: string; 
+    fileUri: string; 
+  };
+  functionCall?: { 
+    name: string; 
+    args: any; 
+  };
+  functionResponse?: { 
+    name: string; 
+    response: any; 
+  };
+  executableCode?: { 
+    language: 'PYTHON' | string; 
+    code: string; 
+  };
+  codeExecutionResult?: { 
+    outcome: 'OUTCOME_OK' | 'OUTCOME_FAILED' | string; 
+    output: string; 
+  };
+}
+
 //-------------------------------这块是维护核心功能的---------------------------------------
 //这个文件是最核心的文件，负责维护main-virtual
 let main_status:total_status|null = null;
@@ -91,7 +126,7 @@ export function getCoreStateForFile():string//该函数会从core_datas/main_vir
         return "SUCCESS:成功读取";
     }else{
         //不存在，准备新建以后引入
-        main_status = default_status;
+        main_status = {...default_status};
         //开始引入
         //引入main_prompt
         main_status.system.main_prompt = readFileSyncAsString(readIni(path.join(__dirname,'../../../library_source.ini'),'main_prompt_file_1'))+ "\n";
@@ -100,9 +135,16 @@ export function getCoreStateForFile():string//该函数会从core_datas/main_vir
         main_status.system.character_reference = "";//现版本为空
         //然后载入事件string,使用component/events/event_loader.ts
         let events_temp_load:EventOutputItem[] = loadInitialEvents();
+        //先把event排序一下
+        events_temp_load.sort((a, b) => {
+            const dateA = a.source.path.split(/[\\/]/).slice(-4, -1).join('');
+            const dateB = b.source.path.split(/[\\/]/).slice(-4, -1).join('');
+            return dateB.localeCompare(dateA);
+        });
+        
         //将event固化
         main_status.system.events = ""
-        events_temp_load.map((input:EventOutputItem)=>{
+        events_temp_load.forEach((input:EventOutputItem)=>{
             main_status!.system.events += input.source.path.split(/[\\/]/).slice(-4, -1).join('') + ':' + input.current + "\n";
         })
         //剩下的东西都不用载入，但是我觉得之后肯定得吧obj的载入啥的写一写
@@ -193,3 +235,154 @@ function writeStatusToFile(filePath: string, statusObject: total_status): boolea
   }
 }
 //-----------------------------这里是进行进一步的功能的---------------------------------------
+const default_Message = {
+    current:"这是默认文本",
+    role_type:"user",
+    role:"default",
+    time:"20240101_000000",
+    file:[],
+    inline:[],
+    toolsCalls:[],
+    toolsResponse:[]
+}
+export function addMessageFromString(addition:string,type:string = "user",name:string = "321哦啦啦",files:string[] = [],inlines:inlineData[] = []):string
+{
+        /*
+        export interface Message {
+        current:string;//这是原始的文本内容，是没有转义的,不带时间和发言人
+        role_type:string;//这是发言人的类型,可以是function,user,或者model
+        role:string;//这是发言者的名字,如果是role_type==function,这里为空
+        time:string;//这是基于cyanTime的标准时间字符串，如果role_type==function,这里为空
+        file:string[];//这是附带的文件,是一个数组，每个成员都是一个完整的文件路径，如果role_type==function,这里为空
+        inline:inlineData[];//这是附带的内联文件，如果role_type==function,这里为空
+        toolsCalls?:functionCall[];//这是做出的functionCall，如果role_type==function,这里为空
+        toolsResponse?:functionResponse[];//这是回答的functionResponse，如果role_type!=function,这里为空
+        } 
+        */
+    let temp_Message:Message = {...default_Message};
+    temp_Message.time = now();
+    temp_Message.role_type = type;
+    temp_Message.role = name;
+    temp_Message.file = files;
+    temp_Message.inline = inlines;
+    //其他玩意为空就行
+    main_status?.context.push(temp_Message);
+    return "SUCCESS:执行完成"
+}//这个函数添加一个Message,接口比较完善
+export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:number = 2000):Promise<string>
+{
+    if(verify_context() && main_status)
+    {
+        try{
+            //先生成系统部分的提示词
+            let system_temp_prompt = "";
+            system_temp_prompt += main_status.system.main_prompt + "\n";
+            system_temp_prompt += main_status.system.character_reference + "\n";
+            system_temp_prompt += "^system 以下是你可以记起来的事：\n" + main_status.system.events  + "\n";
+            system_temp_prompt += "^system 以下是你的工作区: \n" 
+            main_status.system.workspace.map((curr)=>{
+                system_temp_prompt += curr.index + ":" + curr.current + "\n";
+            })
+            //system_temp_prompt += "^system 以下是在对话中涉及到的对象的信息 \n"
+            //main_status.system.object_network
+            //对象的重排序有点复杂，先不搞
+            system_temp_prompt += "^system 以下是拉取到的信息: \n"
+            main_status.system.pulled_info.map((curr)=>{
+                system_temp_prompt += curr.index + ":" + curr.current + "\n"
+            })
+            system_temp_prompt += "^system 以下是你的计划链表: \n"
+            main_status.system.step_progress.map((curr)=>{
+                system_temp_prompt += curr.index + ":"  + curr.status + ":" + curr.current +"\n";
+            })
+            //系统提示词生成完成，载入对话记录
+            let content_temp:content_unit[] = []
+            main_status.context.map((curr)=>{
+                //依次载入
+                let temp_content_unit:content_unit = {
+                    role:curr.role_type,
+                    parts:[]
+                }
+
+                if(curr.current !== "")
+                {   
+                    let temp_text = "";
+                    temp_text += '^' + curr.role + ':' + curr.time + ':' + curr.current;
+                    temp_content_unit.parts.push({text:temp_text});
+                }
+                //if(curr.file.length !== 0)
+                //curr.file[]附带的文件暂且忽略掉
+                if(curr.inline.length !== 0)
+                    curr.inline.map((inlineUnit)=>{
+                        temp_content_unit.parts.push({inlineData:{mimeType:inlineUnit.mimeType,data:inlineUnit.data}});
+                    })
+                //curr.toolsCalls[]
+                //curr.toolsResponse[]
+                //工具这玩意咱们暂时先不写
+                //然后把载入好的unit载入总集
+                content_temp.push(temp_content_unit);
+            })
+            //载入完成
+            const request:EasyGeminiRequest = {
+                systemInstruction : system_temp_prompt,
+                contents : content_temp,
+                generationConfig:{
+                    temperature:INtemperature,
+                    maxOutputTokens:INmaxOutputTokens
+                }
+            }
+            const response = await callGoogleLLM(
+                request,
+                readIni(path.join(__dirname,'../../../library_source.ini'),'google_api_key'),
+                "gemini-3-pro-preview",
+                readIni(path.join(__dirname,'../../../library_source.ini'),'google_base_url')
+            )
+            console.log(response.text);
+            addMessageFromString(
+                response.text,
+                "model",
+                "cyanAI"
+            )
+            return "SUCCESS:回复正常"
+        }catch{
+            return "ERROR:状态合法但是发生错误"
+        }
+        
+    }
+    return "ERROR:当前状态不合法"
+}//这个函数发送当前的的上下文状态给模型
+export function verify_context():boolean
+{
+//不能有连续的model,user,function,user后不可以接function,function后也不能是user
+//第一条得是user
+//最后一条只能是user或者function,不能是model
+if(main_status)
+{
+    const temp_message_length= main_status.context.length
+    if(main_status.context[0].role_type !== "user")
+        return false;
+    let temp_last_type = "user"
+    for(let i = 1 ; i < temp_message_length; i++)
+    {
+        if(
+            (temp_last_type === main_status.context[i].role_type) ||
+            (
+                temp_last_type === "user" && main_status.context[i].role_type === "function"
+            )||
+            (
+                temp_last_type === "function" && main_status.context[i].role_type === "user"
+            )
+        )
+        {
+            //没问题
+        }else
+            return false;//校验不通过
+        temp_last_type = main_status.context[i].role_type;
+    }
+    //单独校验一下最后一条
+    if(main_status.context[temp_message_length - 1].role_type === "model")
+        return false;
+    return true;
+}
+else
+    return false;//模型不存在
+}//这个检查当前状态是否合法
