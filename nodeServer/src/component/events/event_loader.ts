@@ -21,19 +21,8 @@ import { getEntry, getEntryCount, CyanEntry } from '../../utility/ent_operation/
 
 // ================= 类型定义 =================
 
-export interface LinesP {
-    path: string;
-    index: "order" | string;
-    reference: Array<{
-        start: string;
-        end: string;
-    }>;
-}
-
-export interface EventOutputItem {
-    source: LinesP;
-    current: string;
-}
+//引入了
+import {LinesP,EventOutputItem} from '../../types/process/process.type'
 
 // ================= 内部辅助函数 =================
 
@@ -89,7 +78,7 @@ function logErrorToFile(error: Error, context: string): void {
     ].join('\n');
 
     fs.writeFileSync(errorFilePath, errorContent, 'utf-8');
-}
+}//这个函数其实是重复实现的，之后再重构吧
 
 // ================= 核心导出 API =================
 

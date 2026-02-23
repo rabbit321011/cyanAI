@@ -153,3 +153,12 @@ export function timeShow(str: string): string {
 
     return str.startsWith('-') ? `-${res}` : res;
 }
+
+/** 
+ * 获取当前时间
+ * @returns YYYYMMDD_HHMMSS 格式的时间戳字符串
+ */
+export function now(): string {
+    const currentMs = Date.now() - EPOCH_MS;
+    return fromMs(currentMs, 'timestamp');
+}
