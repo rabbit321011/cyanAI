@@ -1,0 +1,2 @@
+//export webRequest{}
+//export webResponse{}

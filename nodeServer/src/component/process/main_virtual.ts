@@ -6,6 +6,8 @@ import {now} from '../../utility/time/cyan_time'
 import fs from 'fs';
 import path from 'path';
 import { callGoogleLLM, EasyGeminiRequest } from '../../utility/LLM_call/google_call';
+import { isError } from '../../utility/error_out/error_out';
+import { remove_timestamp } from '../escaper/remove_timestamp';
 export interface workspace_ent{
     index:string,//以ws开头，然后是序号
     current:string//这里写着%[文件的完整路径]或者直接是文件内容
@@ -260,6 +262,7 @@ export function addMessageFromString(addition:string,type:string = "user",name:s
         } 
         */
     let temp_Message:Message = {...default_Message};
+    temp_Message.current = addition;
     temp_Message.time = now();
     temp_Message.role_type = type;
     temp_Message.role = name;
@@ -338,10 +341,12 @@ export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:num
             )
             console.log(response.text);
             addMessageFromString(
-                response.text,
+                remove_timestamp(response.text),
                 "model",
                 "cyanAI"
             )
+            //然后存下文件
+            saveCoreStateForFile()
             return "SUCCESS:回复正常"
         }catch{
             return "ERROR:状态合法但是发生错误"
@@ -349,13 +354,14 @@ export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:num
         
     }
     return "ERROR:当前状态不合法"
-}//这个函数发送当前的的上下文状态给模型
+}//这个函数发送当前的的上下文状态给模型,并且模型的回复会添加在main_status的上下文里
+
 export function verify_context():boolean
 {
 //不能有连续的model,user,function,user后不可以接function,function后也不能是user
 //第一条得是user
 //最后一条只能是user或者function,不能是model
-if(main_status)
+if(main_status && (main_status.context.length !== 0 ))
 {
     const temp_message_length= main_status.context.length
     if(main_status.context[0].role_type !== "user")
@@ -373,9 +379,8 @@ if(main_status)
             )
         )
         {
-            //没问题
-        }else
-            return false;//校验不通过
+            return false;//有问题
+        }
         temp_last_type = main_status.context[i].role_type;
     }
     //单独校验一下最后一条
@@ -386,3 +391,26 @@ if(main_status)
 else
     return false;//模型不存在
 }//这个检查当前状态是否合法
+//-----------------------------这里是前端直接用到的函数--------------------------------------
+export async function sendUserMessage(send_curr:string,user_name:string):Promise<string>{
+    //会先判断现在有没有status,如果没有就先新建一个
+    if(!main_status)
+        if(isError(getCoreStateForFile()))
+            return "ERROR:获取内核状态错误"
+    //现在有了内核状态,准备先添加从前端传来的消息，再发送
+    addMessageFromString(send_curr,"user",user_name);
+    let temp_sendAll_response = await sendAll()
+    if(isError(temp_sendAll_response))
+        return ("ERROR:发送信息时错误:" + temp_sendAll_response)
+    //获取消息列表的最后一条消息返回
+    let send_response = main_status?.context[main_status?.context.length - 1].current
+    if(send_response)
+        return send_response
+    return "ERROR:历史记录的最后一条获取失败"
+}
+export function exit_status():boolean{
+    if(main_status)
+        return true;
+    else
+        return false;
+}

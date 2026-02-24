@@ -10,17 +10,9 @@ import 'katex/dist/katex.min.css'
  * 单条消息的数据结构（对外暴露的类型）
  * @description 定义了一条消息需要的所有字段
  */
-export interface MessageItem {
-  /** 头像图片路径，可为 null */
-  icon: string | null
-  /** 消息内容（可以是文本或文件路径） */
-  current: string
-  /** 发言人名称 */
-  speaker: string
-  /** 消息来源类型，可选：'file' 表示从文件加载，'raw' 表示直接是文本 */
-  currentFrom?: 'file' | 'raw'
-}
-
+import type {MessageItem} from './types/types'
+// 从全局状态管理文件导入 userName
+import {userName} from './store/globalState'
 /**
  * 内部使用的消息类型（带动画标记）
  * @description 继承自 MessageItem，添加了 _isAnimating 标记用于动画控制
@@ -79,9 +71,16 @@ const MESSAGE_ANIMATION_DURATION = 400
  * 配置 Marked 库，添加 KaTeX 数学公式支持
  * @description 使得消息中的 LaTeX 数学公式可以被正确渲染
  */
+// 配置 marked 选项以支持换行
+marked.setOptions({
+  breaks: true
+});
+
 marked.use(markedKatex({
   throwOnError: false,
-  nonStandard: true
+  nonStandard: true,
+  displayMode: true,
+  fleqn: false
 }))
 
 // ==================== Props 定义与默认值 ====================
@@ -176,9 +175,9 @@ const displayContextArray = computed(() => {
  * 判断是否为用户消息
  * @param speaker 发言人名称
  * @returns 是用户消息返回 true，否则返回 false
- * @description 通过比较 speaker 是否等于 userSpeakerName prop 来判断
+ * @description 通过比较 speaker 是否等于全局状态中的 userName 来判断
  */
-const isNowUser = (speaker: string): boolean => speaker === props.userSpeakerName
+const isNowUser = (speaker: string): boolean => speaker === userName
 
 /**
  * 等待指定毫秒数的 Promise 包装
@@ -203,6 +202,13 @@ const renderMarkdown = (content: string, speaker: string): string => {
   if (isNowUser(speaker)) {
     return content
   }
+  
+  // 方案：先处理换行，再配置marked支持换行
+  // 1. 保持原始内容，不进行复杂的数学公式提取
+  // 2. 确保marked正确处理换行
+  
+  // 直接使用原始内容，依赖marked的默认换行处理
+  // 同时确保marked配置支持换行
   return marked.parse(content) as string
 }
 
@@ -494,8 +500,8 @@ watch(() => props.contextArray?.length, () => {
             <div class="speaker-name">{{ item.speaker }}</div>
             <!-- 消息文本 -->
             <div class="message-text">
-              <!-- 用户消息：纯文本显示 -->
-              <div v-if="isNowUser(item.speaker)">
+              <!-- 用户消息：纯文本显示，保留换行符 -->
+              <div v-if="isNowUser(item.speaker)" class="text-content">
                 {{ getMessageContent(item, index) }}
               </div>
               <!-- AI 消息：Markdown 渲染为 HTML -->
@@ -718,6 +724,22 @@ watch(() => props.contextArray?.length, () => {
   max-width: 100%;
   height: auto;
   border-radius: 4px;
+}
+
+/* KaTeX 数学公式样式 */
+.markdown-content :deep(.katex-display) {
+  margin: 1em 0;
+  overflow-x: auto;
+}
+
+.markdown-content :deep(.katex) {
+  font-size: 1.1em;
+}
+
+/* 纯文本内容样式，保留换行符 */
+.text-content {
+  white-space: pre-wrap;
+  word-wrap: break-word;
 }
 
 /* Markdown 表格样式 */

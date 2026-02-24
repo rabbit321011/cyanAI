@@ -10,12 +10,3 @@ export interface ChatResponse {
   reply: string;
   timestamp: number;
 }
-
-export interface MemoryState {
-  R: number;
-  S: number;
-  last_T_distance: number;
-  D: number;
-  a: number;
-  timeset: string;
-}

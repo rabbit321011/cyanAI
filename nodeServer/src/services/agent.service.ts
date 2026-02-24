@@ -1,5 +1,4 @@
 import { ChatRequest, ChatResponse } from "../types/agent.types";
-
 export class AgentService {
   /**
    * 核心思考函数
