@@ -281,7 +281,7 @@ export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:num
             let system_temp_prompt = "";
             system_temp_prompt += main_status.system.main_prompt + "\n";
             system_temp_prompt += main_status.system.character_reference + "\n";
-            system_temp_prompt += "^system 以下是你可以记起来的事：\n" + main_status.system.events  + "\n";
+            system_temp_prompt += "^system 以下是你可以记起来的事(事件区):\n" + main_status.system.events  + "\n";
             system_temp_prompt += "^system 以下是你的工作区: \n" 
             main_status.system.workspace.map((curr)=>{
                 system_temp_prompt += curr.index + ":" + curr.current + "\n";
@@ -407,10 +407,26 @@ export async function sendUserMessage(send_curr:string,user_name:string):Promise
     if(send_response)
         return send_response
     return "ERROR:历史记录的最后一条获取失败"
-}
+}//以用户的身份发送信息，暂不支持工具调用
 export function exit_status():boolean{
     if(main_status)
         return true;
     else
         return false;
 }
+export async function finish_event():Promise<string>{
+    if(!main_status)
+        if(isError(getCoreStateForFile()))
+            return "ERROR:获取内核时错误"
+    //先看看要不要做什么收尾工作
+    //这部分涉及到tools调用的上下文继承，还没写，所以这里也待定
+    //...
+    
+    //然后压缩事件内容到event,首先会通过sendUserMessage向模型发送一条特殊的名字为system的信息，然后调用
+    let temp_res_event_summary:string = await sendUserMessage(readFileSyncAsString(readIni(path.join(__dirname,'../../../library_source.ini'),'event_summary_guide')),'system')
+    //然后取得重要程度
+    let temp_res_event_Im:number = Number(await sendUserMessage(readFileSyncAsString(readIni(path.join(__dirname,'../../../library_source.ini'),'event_Im_guide')),'system'))
+    console.log("正在总结对话，该对话的总结内容是"+temp_res_event_summary+ "\n当前对话事件的重要程度是" + temp_res_event_Im.toString())
+    //写入事件
+    
+}//把当前的status里的上下文压缩进event，然后删除status

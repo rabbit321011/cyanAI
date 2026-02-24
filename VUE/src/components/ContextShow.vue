@@ -11,8 +11,8 @@ import 'katex/dist/katex.min.css'
  * @description 定义了一条消息需要的所有字段
  */
 import type {MessageItem} from './types/types'
-// 从全局状态管理文件导入 userName
-import {userName} from './store/globalState'
+// 从全局状态管理文件导入 globalState 对象
+import {globalState} from './store/globalState'
 /**
  * 内部使用的消息类型（带动画标记）
  * @description 继承自 MessageItem，添加了 _isAnimating 标记用于动画控制
@@ -177,7 +177,7 @@ const displayContextArray = computed(() => {
  * @returns 是用户消息返回 true，否则返回 false
  * @description 通过比较 speaker 是否等于全局状态中的 userName 来判断
  */
-const isNowUser = (speaker: string): boolean => speaker === userName
+const isNowUser = (speaker: string): boolean => speaker === globalState.userName
 
 /**
  * 等待指定毫秒数的 Promise 包装
@@ -529,7 +529,7 @@ watch(() => props.contextArray?.length, () => {
       @click="scrollToBottom"
       aria-label="滚动到底部"
     >
-      ↓
+      
     </button>
   </div>
 </template>

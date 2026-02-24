@@ -5,9 +5,9 @@ console.log('🧪 测试 remove_timestamp 函数');
 console.log('========================================');
 console.log('');
 
-// 测试用例 1
+// 测试用例 1（原示例）
 const test1 = '^cyanAI:20260224_163737:^cyanAI:20260224_163748:^cyanAI:20260224_163750:^cyanAI:20260224_163755:^cyanAI:20260224_163800:^cyanAI:20260224_163805:然后这里才是真的字符串';
-console.log('📝 测试 1:');
+console.log('📝 测试 1（原示例）:');
 console.log('  输入:', test1);
 console.log('  输出:', remove_timestamp(test1));
 console.log('  ✅ 正确吗?', remove_timestamp(test1) === '然后这里才是真的字符串');
@@ -35,6 +35,22 @@ console.log('📝 测试 4（空字符串）:');
 console.log('  输入:', test4);
 console.log('  输出:', remove_timestamp(test4));
 console.log('  ✅ 正确吗?', remove_timestamp(test4) === '');
+console.log('');
+
+// 测试用例 5（新：没有时间戳）
+const test5 = '^cyanAI:实际内容';
+console.log('📝 测试 5（新：没有时间戳）:');
+console.log('  输入:', test5);
+console.log('  输出:', remove_timestamp(test5));
+console.log('  ✅ 正确吗?', remove_timestamp(test5) === '实际内容');
+console.log('');
+
+// 测试用例 6（新：混合两种情况）
+const test6 = '^user:20260101_120000:^model:混合内容测试';
+console.log('📝 测试 6（新：混合两种情况）:');
+console.log('  输入:', test6);
+console.log('  输出:', remove_timestamp(test6));
+console.log('  ✅ 正确吗?', remove_timestamp(test6) === '混合内容测试');
 console.log('');
 
 console.log('========================================');

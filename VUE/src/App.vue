@@ -6,8 +6,8 @@ import InputBox from './components/InputBox.vue'
 import type {MessageItem} from './components/types/types'
 import {commandMessage,creatUserMessage, sendMessage} from "./components/webOperation"
 import { isError } from './components/utility/isError'
-// 从全局状态管理文件导入 userName
-import {userName} from './components/store/globalState'
+// 从全局状态管理文件导入 globalState 对象
+import {globalState} from './components/store/globalState'
 /**
  * 获取浏览器窗口尺寸
  * @description 使用 @vueuse/core 的 useWindowSize 响应式获取窗口宽高
@@ -30,6 +30,7 @@ async function inputBoxSend(inputBoxText:string){
   const temp_data:string = commandMessage(inputBoxText)
   if(isError(temp_data))
   {
+    console.log("不是命令");
     //这不是命令，那么就不管temp_data这玩意
     //显示信息到自己框里
     contextShowRef.value?.addMessage(creatUserMessage(inputBoxText))
@@ -50,6 +51,7 @@ async function inputBoxSend(inputBoxText:string){
     
     //完成了
   }else{
+    console.log("是命令");
     //成功执行了命令，那么就只把消息添加到显示，不传服务器
     contextShowRef.value?.addMessage(creatUserMessage(inputBoxText));
     //再显示执行结果
