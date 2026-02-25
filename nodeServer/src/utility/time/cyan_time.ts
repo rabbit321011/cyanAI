@@ -17,8 +17,8 @@ const UNITS = {
 // 获取绝对原点 (Year 0, Month 1, Day 1, 00:00:00) 的底层时间戳
 // 避免 JS 的 1900 年 Bug
 const EPOCH_MS = (function initEpoch() {
-    const d = new Date(Date.UTC(0, 0, 1, 0, 0, 0));
-    d.setUTCFullYear(0); 
+    const d = new Date(0, 0, 1, 0, 0, 0);
+    d.setFullYear(0); 
     return d.getTime();
 })();
 
@@ -43,8 +43,8 @@ function toMs(str: string): number {
         const m = parseInt(cleanStr.slice(11, 13), 10);
         const s = parseInt(cleanStr.slice(13, 15), 10);
         
-        const d = new Date(Date.UTC(Y, M, D, H, m, s));
-        d.setUTCFullYear(Y);
+        const d = new Date(Y, M, D, H, m, s);
+        d.setFullYear(Y);
         const absMs = d.getTime() - EPOCH_MS;
         return isNegative ? -absMs : absMs;
     } else {
@@ -59,12 +59,12 @@ function fromMs(ms: number, targetUnit: string): string {
         const absMs = Math.abs(ms);
         const d = new Date(EPOCH_MS + absMs);
         
-        const Y = d.getUTCFullYear().toString().padStart(4, '0');
-        const M = (d.getUTCMonth() + 1).toString().padStart(2, '0');
-        const D = d.getUTCDate().toString().padStart(2, '0');
-        const H = d.getUTCHours().toString().padStart(2, '0');
-        const m = d.getUTCMinutes().toString().padStart(2, '0');
-        const s = d.getUTCSeconds().toString().padStart(2, '0');
+        const Y = d.getFullYear().toString().padStart(4, '0');
+        const M = (d.getMonth() + 1).toString().padStart(2, '0');
+        const D = d.getDate().toString().padStart(2, '0');
+        const H = d.getHours().toString().padStart(2, '0');
+        const m = d.getMinutes().toString().padStart(2, '0');
+        const s = d.getSeconds().toString().padStart(2, '0');
         
         const ts = `${Y}${M}${D}_${H}${m}${s}`;
         return isNegative ? `-${ts}` : ts;

@@ -8,6 +8,7 @@ import path from 'path';
 import { callGoogleLLM, EasyGeminiRequest } from '../../utility/LLM_call/google_call';
 import { isError } from '../../utility/error_out/error_out';
 import { remove_timestamp } from '../escaper/remove_timestamp';
+import { saveEvent } from '../events/event_saver';
 export interface workspace_ent{
     index:string,//以ws开头，然后是序号
     current:string//这里写着%[文件的完整路径]或者直接是文件内容
@@ -428,5 +429,17 @@ export async function finish_event():Promise<string>{
     let temp_res_event_Im:number = Number(await sendUserMessage(readFileSyncAsString(readIni(path.join(__dirname,'../../../library_source.ini'),'event_Im_guide')),'system'))
     console.log("正在总结对话，该对话的总结内容是"+temp_res_event_summary+ "\n当前对话事件的重要程度是" + temp_res_event_Im.toString())
     //写入事件
+    saveEvent(main_status!.context.slice(0,-2),temp_res_event_summary,temp_res_event_Im);
     
+    //删除 status 文件
+    const statusPath = path.join(__dirname, "../../../core_datas/main_virtual/main_virtual.status");
+    if (fs.existsSync(statusPath)) {
+        fs.unlinkSync(statusPath);
+    }
+    
+    //把变量设置为 null
+    main_status = null;
+    
+    //弄好了
+    return "SUCCESS:已经写入文件"
 }//把当前的status里的上下文压缩进event，然后删除status

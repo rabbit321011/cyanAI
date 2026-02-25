@@ -64,6 +64,29 @@ Content-Type: application/json
 
 ---
 
+### 3. 结束事件
+
+结束当前对话事件，保存到事件存储中
+
+**接口**: `POST /closeEvent`
+
+**请求示例**:
+```http
+POST http://localhost:3000/api/cyan/closeEvent
+```
+
+**响应示例**:
+```json
+{
+  "result": true
+}
+```
+
+**响应字段**:
+- `result` (boolean): `true` 表示事件保存成功，`false` 表示失败
+
+---
+
 ## 错误处理
 
 如果发生错误，`result` 字段会返回以下格式的错误信息：
@@ -104,10 +127,18 @@ async function sendMessage(message, userName) {
   return response.data.result;
 }
 
+// 3. 结束事件
+async function closeEvent() {
+  const response = await axios.post(`${BASE_URL}/closeEvent`);
+  console.log('事件保存:', response.data.result ? '成功' : '失败');
+  return response.data.result;
+}
+
 // 连续对话示例
 async function conversation() {
   await sendMessage('你好！我是测试用户。', 'TestUser');
   await sendMessage('你还记得我是谁吗？', 'TestUser');
   await sendMessage('很高兴认识你！', 'TestUser');
+  await closeEvent(); // 结束并保存事件
 }
 ```

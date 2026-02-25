@@ -37,4 +37,17 @@ export class CyanController{
       res.status(500).json({error:"服务器出错了"})
     }
   }//发送信息
+  async controller_close_event(req:Request,res:Response)
+  {
+    try{
+      //这个请求返回结果就行
+      res.json({
+        result:await cyanMainService.service_close_event()
+      })
+    }catch(error)
+    {
+      console.error(error)
+      res.status(500).json({error:"服务器出错了"})
+    }
+  }
 }

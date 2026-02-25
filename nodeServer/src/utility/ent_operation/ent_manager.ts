@@ -57,6 +57,9 @@ export function getEntryCount(filePath: string): number {
 }
 
 export function appendEntry(filePath: string, entry: CyanEntry): void {
+  if (!fs.existsSync(filePath)) {
+    fs.writeFileSync(filePath, '', 'utf-8');
+  }
   const lineStr = JSON.stringify(entry) + '\n';
   fs.appendFileSync(filePath, lineStr, 'utf-8');
 }

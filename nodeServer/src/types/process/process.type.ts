@@ -24,6 +24,10 @@ export interface Message {
     toolsCalls:functionCall[];//这是做出的functionCall，如果role_type==function,这里为空
     toolsResponse:functionResponse[];//这是回答的functionResponse，如果role_type!=function,这里为空
 }
+export interface TextMessage{
+    text:string;//这是文本内容
+    role:string;//这是角色
+}//这是Message的衍生类,纯文本的信息类
 export interface MemoryState{//这玩意需要自行配合保存时间戳才能用哈
     R:number,//记忆强度衰减
     S:number,//记忆稳定性

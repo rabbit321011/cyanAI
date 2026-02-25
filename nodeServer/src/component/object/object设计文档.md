@@ -1,0 +1,31 @@
+object和realive的内容是比较复杂的，每次模型开始一个event时，会初始化一个objectWeb对象
+
+该对象结构如下
+
+```objectNetwork
+{
+	objects:[
+		{
+			name:string;//这里写的是对象的名字
+			current:[
+				{
+					summary:string;//这里是对象特质的简介
+					current:string;//这里是该对象特质的详细
+				}
+			]
+		}
+	],
+	relationShip:[
+		{
+			start:string;//这是发出对象的name
+			end:string;//这是接受对象的name
+			current:[
+				{
+					summary:string;//这里是关系的简介
+					current:string;//这里是具体的关系
+				}
+			]
+		}
+	]
+}
+```

@@ -49,12 +49,12 @@ function scanEntFiles(dir: string, fileList: string[] = []): string[] {
  */
 function getNowTimestamp(): string {
     const d = new Date();
-    const Y = d.getUTCFullYear().toString().padStart(4, '0');
-    const M = (d.getUTCMonth() + 1).toString().padStart(2, '0');
-    const D = d.getUTCDate().toString().padStart(2, '0');
-    const H = d.getUTCHours().toString().padStart(2, '0');
-    const m = d.getUTCMinutes().toString().padStart(2, '0');
-    const s = d.getUTCSeconds().toString().padStart(2, '0');
+    const Y = d.getFullYear().toString().padStart(4, '0');
+    const M = (d.getMonth() + 1).toString().padStart(2, '0');
+    const D = d.getDate().toString().padStart(2, '0');
+    const H = d.getHours().toString().padStart(2, '0');
+    const m = d.getMinutes().toString().padStart(2, '0');
+    const s = d.getSeconds().toString().padStart(2, '0');
     return `${Y}${M}${D}_${H}${m}${s}`;
 }
 

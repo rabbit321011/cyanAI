@@ -152,6 +152,40 @@ export async function callGoogleLLM(
     }
 
     if (extractedFunctionCalls.length > 0) result.functionCalls = extractedFunctionCalls;
+
+    // 显示 token 使用情况
+    const usageMetadata = responseData?.usageMetadata || responseData?.usage || {};
+    if (usageMetadata) {
+      console.log('💾 Token 使用情况:');
+      const usdPerToken = 600 / 300000000; // 600刀对应3亿tokens
+      
+      if (usageMetadata.promptTokenCount !== undefined) {
+        const promptTokens = usageMetadata.promptTokenCount;
+        const promptCny = promptTokens * usdPerToken * (80 / 600);
+        console.log('  输入 Token:', promptTokens + '(￥' + promptCny.toFixed(6) + ')');
+      }
+      
+      if (usageMetadata.candidatesTokenCount !== undefined) {
+        const outputTokens = usageMetadata.candidatesTokenCount;
+        const outputCny = outputTokens * usdPerToken * (80 / 600);
+        console.log('  输出 Token:', outputTokens + '(￥' + outputCny.toFixed(6) + ')');
+      }
+      
+      if (usageMetadata.totalTokenCount !== undefined) {
+        const totalTokens = usageMetadata.totalTokenCount;
+        const totalCny = totalTokens * usdPerToken * (80 / 600);
+        console.log('  总计 Token:', totalTokens + '(￥' + totalCny.toFixed(6) + ')');
+      }
+      
+      if (usageMetadata.total_used !== undefined) {
+        console.log('  已使用总量:', usageMetadata.total_used);
+      }
+      
+      if (usageMetadata.total_available !== undefined) {
+        console.log('  可用剩余:', usageMetadata.total_available);
+      }
+    }
+
     return result;
 
   } catch (error: any) {

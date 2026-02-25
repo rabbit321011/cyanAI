@@ -51,7 +51,6 @@ async function inputBoxSend(inputBoxText:string){
     
     //完成了
   }else{
-    console.log("是命令");
     //成功执行了命令，那么就只把消息添加到显示，不传服务器
     contextShowRef.value?.addMessage(creatUserMessage(inputBoxText));
     //再显示执行结果
@@ -61,6 +60,11 @@ async function inputBoxSend(inputBoxText:string){
       speaker:"commandResponse",
       currentFrom:'raw'
     });
+    // 检查是否是执行了 new 命令（清空对话）
+    if (temp_data.includes('成功清空了对话')) {
+      // 清空 ContextShow 组件中的消息
+      contextShowRef.value?.setContext([])
+    }
     //然后就没事了
   }
 }
