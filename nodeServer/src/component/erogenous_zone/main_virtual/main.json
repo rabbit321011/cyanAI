@@ -1,0 +1,18 @@
+[
+  {
+    "functionDeclarations": [
+      {
+        "name": "default_api:any-example",
+        "description": "这个工具会检测functionCall功能是否正常,其是通过测试functionCall的子功能test_function是否正常来运行的",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "requirement_text": {"type": "string", "description": "用自然语言描述你的需求,在这个工具里，你说：开始测试。就行"},
+            "wait_mode": {"type": "boolean", "description": "如果该参数为true,那么就会阻断当前对话,等待执行完成再返回结果,如果为false,就不阻断当前对话,在执行结束后再弹出执行结果"}
+          },
+          "required": ["requirement_text"]
+        }
+      }
+    ]
+  }
+]

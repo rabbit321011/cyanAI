@@ -7,6 +7,7 @@ export interface functionCall{
     args:{
         [key: string]: any;//这是输入的参数
     }
+    thoughtSignature?:string;//模型调用函数的思考过程
 }
 export interface functionResponse{
     name:string

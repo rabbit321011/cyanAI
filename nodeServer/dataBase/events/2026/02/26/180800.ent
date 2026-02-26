@@ -1,0 +1,12 @@
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^321哦啦啦:看到了吗？","extraCurrent":{},"TIMESET":"20260226_180535"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^cyanAI:嗯！看到了哦\n关于阿萌的事情\n还有你辛苦开发的事情\n都好好地记下来了呢","extraCurrent":{},"TIMESET":"20260226_180545"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^321哦啦啦:不是不是，新添加了功能啦","extraCurrent":{},"TIMESET":"20260226_180557"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^cyanAI:诶？是指下面多出来的那些吗？\n工作区、对象区，还有计划链表...\n感觉多了好多新地盘呢！\n是这个吗？","extraCurrent":{},"TIMESET":"20260226_180607"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^321哦啦啦:不是不是。你看看你现在能调用啥函数tool啥的吗？","extraCurrent":{},"TIMESET":"20260226_180628"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^cyanAI:诶？\n让我找找看哦...\n（左看右看）\n虽然我看不到具体的列表像菜单一样摆在那里\n但是感觉好像确实多了些什么\n是指那个能让我操作“计划链表”的功能吗？\n还是说... 那个传说中的检索功能已经悄悄上线啦？","extraCurrent":{},"TIMESET":"20260226_180648"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^321哦啦啦:不是啊，没有个叫any-example的可以调用吗？","extraCurrent":{},"TIMESET":"20260226_180712"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^cyanAI:诶...\n（努力地感应了一下）\n好像... 真的没有看到呢\n叫 any-example 的孩子吗？\n还没有到我这里来哦\n是不是还在路上呀？","extraCurrent":{},"TIMESET":"20260226_180726"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^321哦啦啦:我去检查一下请求体","extraCurrent":{},"TIMESET":"20260226_180739"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^cyanAI:嗯嗯！\n好哦\n那就拜托开发者大人啦\n我就在这里乖乖等着\n不急不急，慢慢来就好","extraCurrent":{},"TIMESET":"20260226_180747"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^system:这是一条系统提示信息,用户终止了该对话，请你总结在这次对话中你和用户做了什么，作为你记忆的索引。\r\n然后直接返回这个总结文本，不要返回其他内容。\r\n具体的对话内容仍然可以通过main-virtual-recall功能想起来，但是如果索引找不到就糟糕了。\r\n同时，这个索引也充当事件的简介，记载着你对这件事的印象，之后你想起这件事大概率是想起这件事的索引。\r\n如果你认为事情比较重要，或者需要记住的细节比较多，可以适当的多输出一些内容。相反，如果你觉得这次对话值得记忆的东西一句话就能说尽，你也可以只输出一句话。(但是不能输出空)\r\n不要输出你觉得你需要记下来的知识或者信息，输出对当前这次会谈详细或者简明的总结就行。\r\n要认真的思考这件事发生了什么，到底是什么，意味着什么，认清这件事的本质再记下来。","extraCurrent":{},"TIMESET":"20260226_180750"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^cyanAI:20260226:321哦啦啦询问我是否能调用名为 `any-example` 的新工具，我检查后反馈并未发现该功能。随后他表示要去检查请求体进行调试。这是一次关于新功能上线的测试沟通。","extraCurrent":{},"TIMESET":"20260226_180755"}

@@ -9,6 +9,7 @@ import { callGoogleLLM, EasyGeminiRequest } from '../../utility/LLM_call/google_
 import { isError } from '../../utility/error_out/error_out';
 import { remove_timestamp } from '../escaper/remove_timestamp';
 import { saveEvent } from '../events/event_saver';
+import { excuteTool } from './tool_process';
 export interface workspace_ent{
     index:string,//以ws开头，然后是序号
     current:string//这里写着%[文件的完整路径]或者直接是文件内容
@@ -95,6 +96,7 @@ export interface part_unit {
     outcome: 'OUTCOME_OK' | 'OUTCOME_FAILED' | string; 
     output: string; 
   };
+  thoughtSignature?: string;
 }
 
 //-------------------------------这块是维护核心功能的---------------------------------------
@@ -320,27 +322,182 @@ export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:num
                     curr.inline.map((inlineUnit)=>{
                         temp_content_unit.parts.push({inlineData:{mimeType:inlineUnit.mimeType,data:inlineUnit.data}});
                     })
-                //curr.toolsCalls[]
-                //curr.toolsResponse[]
-                //工具这玩意咱们暂时先不写
+                // 处理工具调用
+            if(curr.toolsCalls && curr.toolsCalls.length > 0) {
+                curr.toolsCalls.map((toolCall) => {
+                    const part: any = {
+                        functionCall: {
+                            name: `default_api:${toolCall.name}`,
+                            args: toolCall.args
+                        }
+                    };
+                    if(toolCall.thoughtSignature) {
+                        part.thoughtSignature = toolCall.thoughtSignature;
+                    }
+                    temp_content_unit.parts.push(part);
+                });
+            }
+            // 处理工具响应
+            if(curr.toolsResponse && curr.toolsResponse.length > 0) {
+                curr.toolsResponse.map((toolResponse) => {
+                    temp_content_unit.parts.push({functionResponse: {name: toolResponse.name, response: toolResponse.response}});
+                });
+            }
                 //然后把载入好的unit载入总集
                 content_temp.push(temp_content_unit);
             })
             //载入完成
+            // 从 main.json 读取 tools 配置
+            let toolsConfig = [];
+            try {
+                const toolsPath = path.join(__dirname, '../erogenous_zone/main_virtual/main.json');
+                if (fs.existsSync(toolsPath)) {
+                    const toolsContent = fs.readFileSync(toolsPath, 'utf-8');
+                    toolsConfig = JSON.parse(toolsContent);
+                }
+            } catch (error) {
+                console.error('读取 tools 配置失败:', error);
+                toolsConfig = [];
+            }
+            
             const request:EasyGeminiRequest = {
                 systemInstruction : system_temp_prompt,
                 contents : content_temp,
                 generationConfig:{
                     temperature:INtemperature,
                     maxOutputTokens:INmaxOutputTokens
-                }
+                },
+                tools: toolsConfig
             }
-            const response = await callGoogleLLM(
+            
+            let response = await callGoogleLLM(
                 request,
                 readIni(path.join(__dirname,'../../../library_source.ini'),'google_api_key'),
                 "gemini-3-pro-preview",
                 readIni(path.join(__dirname,'../../../library_source.ini'),'google_base_url')
             )
+            
+            // 检查是否有函数调用
+            if (response.functionCalls && response.functionCalls.length > 0) {
+                
+                // 为每个函数调用生成响应
+                for (const functionCall of response.functionCalls) {
+                    
+                    // 记录函数调用
+                    const functionCallMessage: Message = {
+                        current: '',
+                        role_type: 'function',
+                        role: '',
+                        time: '',
+                        file: [],
+                        inline: [],
+                        toolsCalls: [{
+                            name: functionCall.name.replace('default_api:', ''),
+                            args: functionCall.args,
+                            thoughtSignature: functionCall.thoughtSignature || `调用了${functionCall.name.replace('default_api:', '')}`
+                        }],
+                        toolsResponse: []
+                    };
+                    main_status?.context.push(functionCallMessage);
+                    // 调用工具
+                    let toolResult = `成功调用了功能：${functionCall.name}`;
+                    try {
+                        // 从 args 中获取 requirement_text
+                        const requirementText = functionCall.args?.requirement_text || functionCall.args?.text || JSON.stringify(functionCall.args);
+                        const toolName = functionCall.name.replace('default_api:', '');
+                        console.log(`调用工具 ${toolName}，参数：`, functionCall.args);
+                        // 从 args 中获取 wait_mode，默认为 true
+                        const waitMode = functionCall.args?.wait_mode ?? true;
+                        // 调用 tool_process.ts 执行工具
+                        toolResult = await excuteTool(toolName, requirementText, waitMode);
+                        console.log(`工具 ${toolName} 执行结果：`, toolResult);
+                    } catch (error: any) {
+                        console.error(`工具调用失败：`, error);
+                        toolResult = `工具调用失败：${error.message || '未知错误'}`;
+                    }
+                    // 生成成功响应
+                    const functionResponseMessage: Message = {
+                        current: '',
+                        role_type: 'function',
+                        role: '',
+                        time: '',
+                        file: [],
+                        inline: [],
+                        toolsCalls: [],
+                        toolsResponse: [{
+                            name: functionCall.name,
+                            response: {
+                                result: toolResult
+                            }
+                        }]
+                    };
+                    main_status?.context.push(functionResponseMessage);
+                }
+                
+                // 重新发送请求继续对话
+                const retryRequest: EasyGeminiRequest = {
+                    systemInstruction: system_temp_prompt,
+                    contents: content_temp,
+                    generationConfig: {
+                        temperature: INtemperature,
+                        maxOutputTokens: INmaxOutputTokens
+                    },
+                    tools: toolsConfig
+                };
+                
+                // 重新构建内容，包含函数调用和响应
+                const retryContent: content_unit[] = [];
+                main_status?.context.map((curr) => {
+                    const temp_unit: content_unit = {
+                        role: curr.role_type,
+                        parts: []
+                    };
+                    
+                    if (curr.current !== "") {
+                        const temp_text = '^' + curr.role + ':' + curr.time + ':' + curr.current;
+                        temp_unit.parts.push({ text: temp_text });
+                    }
+                    
+                    if (curr.inline.length !== 0) {
+                        curr.inline.map((inlineUnit) => {
+                            temp_unit.parts.push({ inlineData: { mimeType: inlineUnit.mimeType, data: inlineUnit.data } });
+                        });
+                    }
+                    
+                    if (curr.toolsCalls && curr.toolsCalls.length > 0) {
+                        curr.toolsCalls.map((toolCall) => {
+                            const part: any = {
+                                functionCall: {
+                                    name: `default_api:${toolCall.name}`,
+                                    args: toolCall.args
+                                }
+                            };
+                            if(toolCall.thoughtSignature) {
+                                part.thoughtSignature = toolCall.thoughtSignature;
+                            }
+                            temp_unit.parts.push(part);
+                        });
+                    }
+                    
+                    if (curr.toolsResponse && curr.toolsResponse.length > 0) {
+                        curr.toolsResponse.map((toolResponse) => {
+                            temp_unit.parts.push({ functionResponse: { name: toolResponse.name, response: toolResponse.response } });
+                        });
+                    }
+                    
+                    retryContent.push(temp_unit);
+                });
+                
+                retryRequest.contents = retryContent;
+                
+                response = await callGoogleLLM(
+                    retryRequest,
+                    readIni(path.join(__dirname, '../../../library_source.ini'), 'google_api_key'),
+                    "gemini-3-pro-preview",
+                    readIni(path.join(__dirname, '../../../library_source.ini'), 'google_base_url')
+                );
+            }
+            
             console.log(response.text);
             addMessageFromString(
                 remove_timestamp(response.text),
@@ -360,7 +517,7 @@ export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:num
 
 export function verify_context():boolean
 {
-//不能有连续的model,user,function,user后不可以接function,function后也不能是user
+//不能有连续的model,user,function后不能是user
 //第一条得是user
 //最后一条只能是user或者function,不能是model
 if(main_status && (main_status.context.length !== 0 ))
@@ -372,10 +529,8 @@ if(main_status && (main_status.context.length !== 0 ))
     for(let i = 1 ; i < temp_message_length; i++)
     {
         if(
-            (temp_last_type === main_status.context[i].role_type) ||
-            (
-                temp_last_type === "user" && main_status.context[i].role_type === "function"
-            )||
+            (temp_last_type === "model" && main_status.context[i].role_type === "model") ||
+            (temp_last_type === "user" && main_status.context[i].role_type === "user") ||
             (
                 temp_last_type === "function" && main_status.context[i].role_type === "user"
             )
@@ -386,7 +541,7 @@ if(main_status && (main_status.context.length !== 0 ))
         temp_last_type = main_status.context[i].role_type;
     }
     //单独校验一下最后一条
-    if(main_status.context[temp_message_length - 1].role_type === "model")
+    if(main_status.context[temp_message_length - 1].role_type === "model" || main_status.context[temp_message_length - 1].role_type === "function")
         return false;
     return true;
 }

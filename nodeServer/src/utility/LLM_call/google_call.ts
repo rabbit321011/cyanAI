@@ -48,6 +48,7 @@ export interface Part {
     outcome: 'OUTCOME_OK' | 'OUTCOME_FAILED' | string; 
     output: string; 
   };
+  thoughtSignature?: string;
 }
 
 export interface Content {
@@ -64,9 +65,10 @@ export interface EasyGeminiRequest {
 
 export interface EasyGeminiResponse {
   text: string;                             
-  functionCalls?: Array<{                   
+  functionCalls?: Array<{                    
     name: string;
     args: any;
+    thoughtSignature?: string;
   }>;
   rawResponse?: any;                        
 }
@@ -142,12 +144,16 @@ export async function callGoogleLLM(
     const parts = responseData?.candidates?.[0]?.content?.parts || [];
     
     const result: EasyGeminiResponse = { text: '', rawResponse: responseData };
-    const extractedFunctionCalls: Array<{ name: string; args: any }> = [];
+    const extractedFunctionCalls: Array<{ name: string; args: any; thoughtSignature?: string }> = [];
 
     for (const part of parts) {
       if (part.text) result.text += part.text; 
       if (part.functionCall) {
-        extractedFunctionCalls.push({ name: part.functionCall.name, args: part.functionCall.args });
+        extractedFunctionCalls.push({ 
+          name: part.functionCall.name, 
+          args: part.functionCall.args,
+          thoughtSignature: part.thoughtSignature
+        });
       }
     }
 

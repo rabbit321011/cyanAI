@@ -1,0 +1,29 @@
+[{
+  "type": "function",
+  "function": {
+    "name": "test_function",
+    "description": "在返回输入的文本前加一个testSuccess:,然后返回",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "input": {"type": "string", "description": "输入的文本"}
+      },
+      "required": ["input"]
+    }
+  }
+},
+{
+  "type": "function",
+  "function": {
+    "name": "upData",
+    "description": "上传结果",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "result": {"type": "string", "description": "被上传的结果"}
+      },
+      "required": ["result"]
+    }
+  }
+}
+]

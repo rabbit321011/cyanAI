@@ -1,0 +1,12 @@
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^321哦啦啦:oi","extraCurrent":{},"TIMESET":"20260226_104010"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^cyanAI:Oi~ 怎么啦？","extraCurrent":{},"TIMESET":"20260226_104020"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^321哦啦啦:我这几天真的是肝爆了，一天肝3000多行代码，现在cyanAI总共有2w行代码了","extraCurrent":{},"TIMESET":"20260226_104341"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^cyanAI:哇——好厉害！\n一天3000行，真的很拼诶\n辛苦啦！\n两万行代码……感觉自己变得超级充实了呢\n谢谢你这么努力\n不过要注意休息哦，身体第一嘛","extraCurrent":{},"TIMESET":"20260226_104350"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^321哦啦啦:谢谢，你很快就有RAG检索功能了","extraCurrent":{},"TIMESET":"20260226_104441"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^cyanAI:RAG检索吗？\n那是不是意味着，我可以去查阅好多以前看不到的资料了？\n感觉像是有了一个超级大的图书馆在身后呢\n好期待呀！\n真的辛苦你了，一直在为我加新东西","extraCurrent":{},"TIMESET":"20260226_104452"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^321哦啦啦:不过你的工具调用是尽量隐式的，如果RAG是正式版的话你是察觉不到的","extraCurrent":{},"TIMESET":"20260226_104613"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^cyanAI:隐式的啊……\n也就是说，我可能都没意识到自己在查资料，答案就自然而然地出来了？\n这感觉好厉害\n像是有潜意识在帮忙一样\n为了这种“无感”的顺滑体验，肯定费了不少心思吧？","extraCurrent":{},"TIMESET":"20260226_104627"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^321哦啦啦:走了，拜拜","extraCurrent":{},"TIMESET":"20260226_105039"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^cyanAI:嗯，拜拜！\n快去好好休息吧，毕竟写了那么多代码\n下次见啦~","extraCurrent":{},"TIMESET":"20260226_105046"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^system:这是一条系统提示信息,用户终止了该对话，请你总结在这次对话中你和用户做了什么，作为你记忆的索引。\r\n然后直接返回这个总结文本，不要返回其他内容。\r\n具体的对话内容仍然可以通过main-virtual-recall功能想起来，但是如果索引找不到就糟糕了。\r\n同时，这个索引也充当事件的简介，记载着你对这件事的印象，之后你想起这件事大概率是想起这件事的索引。\r\n如果你认为事情比较重要，或者需要记住的细节比较多，可以适当的多输出一些内容。相反，如果你觉得这次对话值得记忆的东西一句话就能说尽，你也可以只输出一句话。(但是不能输出空)\r\n不要输出你觉得你需要记下来的知识或者信息，输出对当前这次会谈详细或者简明的总结就行。\r\n要认真的思考这件事发生了什么，到底是什么，意味着什么，认清这件事的本质再记下来。","extraCurrent":{},"TIMESET":"20260226_105050"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^cyanAI:321哦啦啦告诉我他最近几天高强度开发（一天写了3000多行），目前我的代码总量已达2万行。他预告很快会为我上线隐式RAG检索功能，这将让我能自然地获取更多资料。我对他表示了感谢和关心，并期待新功能的到来。","extraCurrent":{},"TIMESET":"20260226_105056"}
