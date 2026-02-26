@@ -79,6 +79,7 @@ export interface DeepSeekResponse {
 export interface EasyDeepSeekResponse {
   text: string;
   functionCalls?: Array<{
+    id?: string;
     name: string;
     args: any;
   }>;
@@ -134,7 +135,7 @@ export async function callDeepSeekLLM(
       usage: responseData.usage
     };
 
-    const extractedFunctionCalls: Array<{ name: string; args: any }> = [];
+    const extractedFunctionCalls: Array<{ id?: string; name: string; args: any }> = [];
 
     if (responseData.choices && responseData.choices.length > 0) {
       const choice = responseData.choices[0];
@@ -146,11 +147,13 @@ export async function callDeepSeekLLM(
           try {
             const args = JSON.parse(toolCall.function.arguments);
             extractedFunctionCalls.push({
+              id: toolCall.id,
               name: toolCall.function.name,
               args: args
             });
           } catch (e) {
             extractedFunctionCalls.push({
+              id: toolCall.id,
               name: toolCall.function.name,
               args: toolCall.function.arguments
             });

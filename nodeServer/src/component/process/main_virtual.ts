@@ -287,7 +287,8 @@ export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:num
             main_status.system.workspace.map((curr)=>{
                 system_temp_prompt += curr.index + ":" + curr.current + "\n";
             })
-            //system_temp_prompt += "^system 以下是在对话中涉及到的对象的信息 \n"
+
+            system_temp_prompt += "^system 以下是在对话中涉及到的对象的信息(对象区) \n"
             //main_status.system.object_network
             //对象的重排序有点复杂，先不搞
             system_temp_prompt += "^system 以下是拉取到的信息: \n"

@@ -1,0 +1,14 @@
+{
+  "type": "function",
+  "function": {
+    "name": "exit",
+    "description": "退出你的任务(main_task)",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "text": {"type": "string", "description": "描述任务做的怎么样"}
+      },
+      "required": ["text"]
+    }
+  }
+}
