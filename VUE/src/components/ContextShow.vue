@@ -212,6 +212,51 @@ const renderMarkdown = (content: string, speaker: string): string => {
   return marked.parse(content) as string
 }
 
+// ==================== 媒体消息相关函数 ====================
+
+/**
+ * 媒体信息接口
+ * @description 定义媒体消息的数据结构
+ */
+interface MediaInfo {
+  type: 'image' | 'video' | 'audio'
+  dataUri: string
+}
+
+/**
+ * 判断是否为媒体消息
+ * @param content 消息内容
+ * @returns 是媒体消息返回 true，否则返回 false
+ * @description 检查内容是否以 %[ 开头并以 ] 结尾
+ */
+const isMediaMessage = (content: string): boolean => {
+  return content.startsWith('%[') && content.endsWith(']')
+}
+
+/**
+ * 获取媒体信息
+ * @param content 消息内容
+ * @returns 媒体信息对象，如果不是有效的媒体消息返回 null
+ * @description 从 %[data:image/png;base64,...] 格式中提取 MIME 类型和 data URI
+ */
+const getMediaInfo = (content: string): MediaInfo | null => {
+  if (!isMediaMessage(content)) {
+    return null
+  }
+  
+  const dataUri = content.slice(2, -1)
+  
+  const match = dataUri.match(/^data:(image|video|audio)\/[^;]+;base64,/)
+  if (match) {
+    return {
+      type: match[1] as 'image' | 'video' | 'audio',
+      dataUri: dataUri
+    }
+  }
+  
+  return null
+}
+
 // ==================== 文件加载相关函数 ====================
 
 /**
@@ -504,12 +549,36 @@ watch(() => props.contextArray?.length, () => {
               <div v-if="isNowUser(item.speaker)" class="text-content">
                 {{ getMessageContent(item, index) }}
               </div>
-              <!-- AI 消息：Markdown 渲染为 HTML -->
-              <div 
-                v-else 
-                class="markdown-content" 
-                v-html="renderMarkdown(getMessageContent(item, index), item.speaker)"
-              ></div>
+              <!-- AI 消息：判断是媒体消息还是普通 Markdown -->
+              <div v-else>
+                <!-- 媒体消息 -->
+                <div v-if="isMediaMessage(getMessageContent(item, index))">
+                  <img 
+                    v-if="getMediaInfo(getMessageContent(item, index))?.type === 'image'"
+                    :src="getMediaInfo(getMessageContent(item, index))?.dataUri"
+                    alt="media"
+                    class="media-image"
+                  />
+                  <video 
+                    v-else-if="getMediaInfo(getMessageContent(item, index))?.type === 'video'"
+                    :src="getMediaInfo(getMessageContent(item, index))?.dataUri"
+                    controls
+                    class="media-video"
+                  />
+                  <audio 
+                    v-else-if="getMediaInfo(getMessageContent(item, index))?.type === 'audio'"
+                    :src="getMediaInfo(getMessageContent(item, index))?.dataUri"
+                    controls
+                    class="media-audio"
+                  />
+                </div>
+                <!-- 普通 Markdown 文本 -->
+                <div 
+                  v-else 
+                  class="markdown-content" 
+                  v-html="renderMarkdown(getMessageContent(item, index), item.speaker)"
+                ></div>
+              </div>
             </div>
           </div>
           
@@ -724,6 +793,39 @@ watch(() => props.contextArray?.length, () => {
   max-width: 100%;
   height: auto;
   border-radius: 4px;
+}
+
+/* ==================== 媒体组件样式 ==================== */
+
+/* 图片样式 */
+.media-image {
+  max-width: 100%;
+  width: auto;
+  height: auto;
+  border-radius: 8px;
+  display: block;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.media-image:hover {
+  transform: scale(1.02);
+}
+
+/* 视频样式 */
+.media-video {
+  max-width: 100%;
+  border-radius: 8px;
+  display: block;
+}
+
+/* 音频样式 */
+.media-audio {
+  width: 100%;
+  min-width: 200px;
+  height: 40px;
+  display: block;
+  border-radius: 8px;
 }
 
 /* KaTeX 数学公式样式 */

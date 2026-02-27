@@ -1,0 +1,5 @@
+{
+  "watch": ["src"],
+  "ignore": ["core_datas/tool_responses", "node_modules", "*.log"],
+  "ext": "ts,json"
+}

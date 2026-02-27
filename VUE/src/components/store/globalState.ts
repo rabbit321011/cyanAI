@@ -4,6 +4,6 @@
 // 使用对象包装共享变量，允许修改属性
 export const globalState = {
   userName: "默认用户名",
-  backendApiBaseUrl: "http://35b9a934.r24.cpolar.top"
+  backendApiBaseUrl: "http://localhost:3000"
 };//http://35b9a934.r24.cpolar.top
 //http://localhost:3000

@@ -7,8 +7,7 @@ import type {MessageItem} from './components/types/types'
 import {commandMessage,creatUserMessage, sendMessage} from "./components/webOperation"
 import { isError } from './components/utility/isError'
 // 从全局状态管理文件导入 globalState 对象
-import {globalState} from './components/store/globalState'
-/**
+import {globalState} from './components/store/globalState'/**
  * 获取浏览器窗口尺寸
  * @description 使用 @vueuse/core 的 useWindowSize 响应式获取窗口宽高
  */

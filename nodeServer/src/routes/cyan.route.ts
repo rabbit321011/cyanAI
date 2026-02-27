@@ -10,4 +10,5 @@ const cyanController = new CyanController();
 router.post("/exit", cyanController.controller_exit_status);
 router.post("/send", cyanController.controller_send_message);
 router.post("/closeEvent",cyanController.controller_close_event);
+router.post("/sendTest", cyanController.controller_send_test_message);
 export default router;

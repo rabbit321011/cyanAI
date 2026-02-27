@@ -50,4 +50,23 @@ export class CyanController{
       res.status(500).json({error:"服务器出错了"})
     }
   }
+  async controller_send_test_message(req:Request,res:Response)
+  {//这玩意的body需要是{current,user_name},返回{result:"结果字符串"}
+    try{
+        const body = req.body;
+        if (!body || !body.current || !body.user_name) {
+        // 400 Bad Request: 你请求有问题
+        res.status(400).json({ error: "参数错误: 必须包含 current 和 user_name 字段" });
+        return; 
+        }
+      
+        res.json({
+            result:await cyanMainService.service_send_test_message(body.current,body.user_name)
+        })
+    }catch(error)
+    {
+      console.error(error)
+      res.status(500).json({error:"服务器出错了"})
+    }
+  }//发送测试信息
 }

@@ -1,14 +1,18 @@
 [{
   "type": "function",
   "function": {
-    "name": "test_function",
-    "description": "在返回输入的文本前加一个testSuccess:,然后返回",
+    "name": "TTS_function",
+    "description": "输入文本和语气描述，返回合成的语音的文件路径",
     "parameters": {
       "type": "object",
       "properties": {
-        "input": {"type": "string", "description": "输入的文本"}
+        "input": {"type": "string", "description": "想合成的文本"},
+        "instruct":{"type": "string", "description": "语气和表达方式的描述，支持任意中文描述，例如：用自然亲切的语气说、用可爱萌萌的语气说、用温柔软糯的语气说、用生气的语气说、用开心笑着的语气说、用叙述的语气说、用正式的语气说等。在刚刚的示例的基础上可以再长点具体点。这个参数影响力度较小"},
+        "language":{"type": "string", "description": "想合成文本的语言,尽量选择Chinese,总共有:\"auto\"、\"chinese\"、\"english\"、\"japanese\"、\"korean\"、\"german\"、\"french\"、\"russian\"、\"portuguese\"、\"spanish\"、\"italian\""},
+        "temperature":{"type": "number", "description": "控制生成的随机性，范围0.0-2.0，推荐0.5-1.0。值越低越稳定，值越高越多样，正常说话建议0.65"},
+        "top_p":{"type": "number", "description": "核采样参数，范围0.0-1.0，推荐0.8-0.95。只保留累积概率达到该值的token，正常说话建议0.92"}
       },
-      "required": ["input"]
+      "required": ["input","instruct","language"]
     }
   }
 },
@@ -16,13 +20,13 @@
   "type": "function",
   "function": {
     "name": "upData",
-    "description": "上传结果",
+    "description": "上传合成好的音频的文件路径",
     "parameters": {
       "type": "object",
       "properties": {
-        "result": {"type": "string", "description": "被上传的结果"}
+        "file_path": {"type": "string", "description": "被上传的文件路径"}
       },
-      "required": ["result"]
+      "required": ["file_path"]
     }
   }
 }

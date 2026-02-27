@@ -373,10 +373,19 @@ export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:num
             let response = await callGoogleLLM(
                 request,
                 readIni(path.join(__dirname,'../../../library_source.ini'),'google_api_key'),
-                "gemini-3-pro-preview",
+                "gemini-3-flash-preview",
                 readIni(path.join(__dirname,'../../../library_source.ini'),'google_base_url')
             )
-            
+            /*
+1. gemini-3.1-pro-preview - 最新的 Pro 版本预览，功能最全面
+2. gemini-3-pro-preview - 当前代码中使用的模型，性能和功能都很强大
+3. gemini-3-flash-preview - 最新的 Flash 版本，响应速度更快
+### 稳定版本模型
+1. gemini-2.5-pro - 稳定的 Pro 版本，平衡了性能和功能
+2. gemini-2.5-flash - 稳定的轻量版本，响应速度快
+3. gemini-2.0-flash - 较早的轻量版本，适合简单任务
+### 其他特殊模型
+             */
             // 检查是否有函数调用
             if (response.functionCalls && response.functionCalls.length > 0) {
                 

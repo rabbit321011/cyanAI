@@ -42,6 +42,9 @@ export async function sendMessage(input:string):Promise<string>
         console.log(`消息内容: ${input}`);
         console.log(`用户名: ${globalState.userName}`);
         
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 300000);
+        
         const response = await fetch(apiUrl, {
             method: 'POST',
             headers: {
@@ -50,8 +53,11 @@ export async function sendMessage(input:string):Promise<string>
             body: JSON.stringify({
                 current: input,
                 user_name: globalState.userName
-            })
+            }),
+            signal: controller.signal
         });
+
+        clearTimeout(timeoutId);
 
         console.log(`响应状态码: ${response.status}`);
         
@@ -80,12 +86,18 @@ export async function newChat():Promise<boolean>
         const apiUrl = `${globalState.backendApiBaseUrl.replace(/\/$/, '')}/api/cyan/closeEvent`;
         console.log(`结束当前事件: ${apiUrl}`);
         
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 300000);
+        
         const response = await fetch(apiUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
-            }
+            },
+            signal: controller.signal
         });
+
+        clearTimeout(timeoutId);
 
         console.log(`响应状态码: ${response.status}`);
         
@@ -99,5 +111,49 @@ export async function newChat():Promise<boolean>
     } catch (error) {
         console.error('结束事件失败:', error);
         return false;
+    }
+}
+
+/**
+ * 载入测试数据
+ * @description 调用后端的测试接口获取初始测试数据
+ * @returns Promise<string> - 返回测试数据字符串
+ */
+export async function loadTestData():Promise<string>
+{
+    try {
+        // 确保路径格式正确，避免斜杠重复
+        const apiUrl = `${globalState.backendApiBaseUrl.replace(/\/$/, '')}/api/cyan/sendTest`;
+        console.log(`载入测试数据: ${apiUrl}`);
+        
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 300000);
+        
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                current: "test",
+                user_name: globalState.userName
+            }),
+            signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        console.log(`响应状态码: ${response.status}`);
+        
+        if (!response.ok) {
+            throw new Error(`API 请求失败: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log(`测试数据:`, data);
+        return data.result;
+    } catch (error) {
+        console.error('载入测试数据失败:', error);
+        return `ERROR:载入测试数据时出错:${(error as Error).message}`;
     }
 }
