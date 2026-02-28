@@ -19,11 +19,27 @@
     "functionDeclarations": [
       {
         "name": "default_api:main-virtual-speak",
-        "description": "这个工具会接受一个要求,用TTS合成语音并且返回语音音频文件的文件路径,暂且只支持wait_mode。无法合成情绪起伏非常强的语音，或者说这个工具合成的语音可能会有点平淡",
+        "description": "这个工具会接受一个要求,用TTS合成语音并且返回语音音频文件的文件路径,暂且只支持wait_mode。无法合成情绪起伏非常强的语音，或者说这个工具合成的语音可能会有点平淡（暂时不可用）",
         "parameters": {
           "type": "object",
           "properties": {
             "requirement_text": {"type": "string", "description": "用自然语言描述你的语音合成需求,打个比方，你可以说这样的内容：\"自动分析情绪，合成音频:我才不不羡慕啊！\""},
+            "wait_mode": {"type": "boolean", "description": "如果该参数为true,那么就会阻断当前对话,等待执行完成再返回结果,如果为false,就不阻断当前对话,在执行结束后再弹出执行结果"}
+          },
+          "required": ["requirement_text"]
+        }
+      }
+    ]
+  },
+  {
+    "functionDeclarations": [
+      {
+        "name": "default_api:send_QQ_message",
+        "description": "向指定QQ号或者联系人发送消息，支持文本、图片、语音的混合消息。消息格式：使用@br分隔不同消息，%[文件路径]表示文件（图片或语音）。暂且只支持wait_mode",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "requirement_text": {"type": "string", "description": "用自然语言描述你的需求，例如：\"向QQ号2926855205发送消息：你好啊@br%[C:/example.png]@br这样图片怎么样\"。可以给多个人发送"},
             "wait_mode": {"type": "boolean", "description": "如果该参数为true,那么就会阻断当前对话,等待执行完成再返回结果,如果为false,就不阻断当前对话,在执行结束后再弹出执行结果"}
           },
           "required": ["requirement_text"]

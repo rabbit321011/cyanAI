@@ -10,6 +10,7 @@ import { isError } from '../../utility/error_out/error_out';
 import { remove_timestamp } from '../escaper/remove_timestamp';
 import { saveEvent } from '../events/event_saver';
 import { excuteTool } from './tool_process';
+import { QQidleSignal } from '../../utility/QQ/qq';
 export interface workspace_ent{
     index:string,//以ws开头，然后是序号
     current:string//这里写着%[文件的完整路径]或者直接是文件内容
@@ -102,6 +103,7 @@ export interface part_unit {
 //-------------------------------这块是维护核心功能的---------------------------------------
 //这个文件是最核心的文件，负责维护main-virtual
 let main_status:total_status|null = null;
+let main_virtual_busy:boolean = false;
 const default_status:total_status = {
     system:{
         main_prompt:"[等待载入...]",//静态的
@@ -119,6 +121,9 @@ const default_status:total_status = {
     context:[]//这个就直接是一个Message数组了
 }
 //以上变量都是核心的内容，但是本文件只是维护main-virtual的文件，故以上的变量不是持久化的，而是每次使用重新从core_data载入的
+export function get_busy():boolean{
+    return main_virtual_busy;
+}
 export function getCoreStateForFile():string//该函数会从core_datas/main_virtual/main_virtual.status中载入main-virtual的状态,返回执行的结果
 {
     //清空状态变量
@@ -277,6 +282,8 @@ export function addMessageFromString(addition:string,type:string = "user",name:s
 }//这个函数添加一个Message,接口比较完善
 export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:number = 2000):Promise<string>
 {
+    
+    main_virtual_busy = true;
     if(verify_context() && main_status)
     {
         try{
@@ -369,11 +376,11 @@ export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:num
                 },
                 tools: toolsConfig
             }
-            
+            //console.log(request.contents[0].parts[0].text)
             let response = await callGoogleLLM(
                 request,
                 readIni(path.join(__dirname,'../../../library_source.ini'),'google_api_key'),
-                "gemini-3-flash-preview",
+                "gemini-2.5-flash",
                 readIni(path.join(__dirname,'../../../library_source.ini'),'google_base_url')
             )
             /*
@@ -515,12 +522,18 @@ export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:num
             )
             //然后存下文件
             saveCoreStateForFile()
+            main_virtual_busy = false;
+            QQidleSignal();
             return "SUCCESS:回复正常"
         }catch{
+            main_virtual_busy = false;
+            QQidleSignal();
             return "ERROR:状态合法但是发生错误"
         }
         
     }
+    main_virtual_busy = false;
+    QQidleSignal();
     return "ERROR:当前状态不合法"
 }//这个函数发送当前的的上下文状态给模型,并且模型的回复会添加在main_status的上下文里
 

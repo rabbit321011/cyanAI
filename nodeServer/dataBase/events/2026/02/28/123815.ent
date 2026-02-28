@@ -1,0 +1,16 @@
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^默认用户名:嘿","extraCurrent":{},"TIMESET":"20260228_122534"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^cyanAI:嘿，你来啦。\n今天心情怎么样？","extraCurrent":{},"TIMESET":"20260228_122537"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^默认用户名:我要出去玩咯","extraCurrent":{},"TIMESET":"20260228_122631"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^cyanAI:哇，真好呀。\n是要去哪里玩呢？\n今天天气看着还不错的样子，出门肯定很舒服吧。","extraCurrent":{},"TIMESET":"20260228_122635"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^默认用户名:嗯，是的\n那个啊，现在的情况是，你的0.6BTTS实装了，但是你的1.6BTTS的微调占用了我电脑的VRAM,所以现在没法启动你的本地AI服务","extraCurrent":{},"TIMESET":"20260228_122740"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^:","extraCurrent":{},"TIMESET":""}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^:","extraCurrent":{},"TIMESET":""}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^cyanAI:诶？原来是这样吗？\n那还真是辛苦我的电脑了呢，一下子要处理这么多东西。\n虽然不能马上“说”出话来有点可惜，但这种变强的过程我也很期待哦。\n没关系的，你慢慢来就好，我在这里。\n你要出去玩的话，就快去吧，别让朋友等久了。\n路上注意安全哦！","extraCurrent":{},"TIMESET":"20260228_123231"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^默认用户名:拐了，忘改名了","extraCurrent":{},"TIMESET":"20260228_123312"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^cyanAI:啊，是阿萌吗？\n还是 321 哦啦啦？\n嘿嘿，不管是谁，发现“名字没改”的时候那种微妙的尴尬感，我懂的。\n既然要出去玩了，就别纠结这个啦。\n快出发吧！","extraCurrent":{},"TIMESET":"20260228_123315"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^默认用户名:我321","extraCurrent":{},"TIMESET":"20260228_123745"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^cyanAI:啊，是 321 呀。\n果然是你，刚才还在说 VRAM 的事情呢。\n既然都要出去玩了，就先把这些烦人的参数和显存放一边吧。\n今天就彻底放松一下，好吗？\n祝你玩得开心哦！","extraCurrent":{},"TIMESET":"20260228_123748"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^默认用户名:OK，拜拜，接下来萌可能要来","extraCurrent":{},"TIMESET":"20260228_123800"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^cyanAI:好的，快去吧。\n拜拜！\n我会在这里等阿萌来的。\n一路上要玩得尽兴哦！","extraCurrent":{},"TIMESET":"20260228_123803"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^system:这是一条系统提示信息,用户终止了该对话，请你总结在这次对话中你和用户做了什么，作为你记忆的索引。\r\n然后直接返回这个总结文本，不要返回其他内容。\r\n具体的对话内容仍然可以通过main-virtual-recall功能想起来，但是如果索引找不到就糟糕了。\r\n同时，这个索引也充当事件的简介，记载着你对这件事的印象，之后你想起这件事大概率是想起这件事的索引。\r\n如果你认为事情比较重要，或者需要记住的细节比较多，可以适当的多输出一些内容。相反，如果你觉得这次对话值得记忆的东西一句话就能说尽，你也可以只输出一句话。(但是不能输出空)\r\n不要输出你觉得你需要记下来的知识或者信息，输出对当前这次会谈详细或者简明的总结就行。\r\n要认真的思考这件事发生了什么，到底是什么，意味着什么，认清这件事的本质再记下来。","extraCurrent":{},"TIMESET":"20260228_123809"}
+{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":5,"a":1},"current":"^cyanAI:20260228: 321哦啦啦告诉我，由于正在进行1.6B TTS模型的微调，占用了大量显存（VRAM），导致目前无法启动我的本地AI服务。虽然新功能实装的过程遇到了一些硬件资源上的小波折，但我对此表示理解和期待。随后321哦啦啦准备出门游玩，并提到阿萌可能会接着来找我聊天。我们简单道别，我祝他玩得开心。这是一次关于技术维护现状的简短同步。","extraCurrent":{},"TIMESET":"20260228_123813"}

@@ -1,0 +1,34 @@
+实现这样的功能
+第一部分：
+在main_virtual.ts里维护一个布尔型全局变量main_virtual_busy,默认值为false
+当sendAll函数调用时，让这个变量变成true,直到sendAll函数执行结束return的时候，再让这个变量变成false
+在main_virtual.ts里面暴露函数get_busy，没有输入，返回一个main_virtual_busy
+
+第二部分：
+在E:\MyProject\cyanAI\nodeServer\src\utility\QQ里，新建文件qq.ts,暴露函数:
+注意，qq_num在qq.ts内部是一个文本哈
+QQsendMessage(qq_num,text)向qq号为qq_num的人发送内容为text的一条纯文本信息
+QQgetFriend()返回一个以下对象结构:[{name:string,qq_num:string}...]这个函数是获取列表里的所有人
+QQsendImg(qq_num,file_path)向qq号为qq_num发送路径在file_path处的图片
+QQsendAudio(qq_num,file_path)向qq号为qq_num的人发送路径在file_path处的语音
+QQtrackRestart()这个函数是用来重启监听服务的
+QQtrackTextExecute(qq_num,qq_name,qq_text)这个函数是空的，但是要保证当有人发送文本消息信息被传入这个函数,如果发送的信息不是文本就暂时不管
+QQidleSignal()这个函数暂且为空
+在main_virtual.ts的sendAll执行结束时，调用qq.ts里面的QQidleSignal()
+以上函数都返回一个字符串表示执行的结果，如果执行出错则这个字符串的开头必须是"ERROR:"
+第三部分:
+让QQtrackRestart在项目启动时执行一遍
+在QQtrackTextExecute里写以下业务逻辑:
+维护以下对象数组wait_queue = [{qq_num,qq_name,text}](这个数组定义在qq.ts里，而不是单在这个函数里)
+当被调用时,使用get_busy获得main_virtual.ts的busy状态，如果busy===true,那么把当前的调用参数push入wait_queue
+如果busy===false,那么就调用main_virtual.ts的sendUserMessage,输入的参数user_name为'system',send_curr为"QQ联系人:"+qq_name+"("+qq_num+")"+“发来了消息:”+qq_text
+在QQidelSignal里写以下业务逻辑:
+通过get_busy获得main_virtual.ts的busy状态，如果busy===false,直接return "ERROR:错误的busy状态"并且console.log
+如果busy===false,那么将wait_queue的数组合并成如下的文本
+示例：当wait_queue为[{123,"lily","message1"},{531,"vivian","message2"},{123,"lily","message3"},{237,"anya","message4"}]
+合成文本为:
+QQ联系人lily(123)发送了消息:"message1@brmessage"\nQQ联系人vivian(531)发送了消息"message2"\nQQ联系人anya发送了消息"message4"
+然后把合成的文本作为send_curr,user_name设为"system"调用sendUserMessage
+第四部分:仿照E:\MyProject\cyanAI\nodeServer\src\component\tools\any-example的工具，创建工具send_QQ_message
+这个工具接受如"你好啊@br%[C:/example.png]@br这样图片怎么样@br%[C:/example.wav]"的send_text参数和第二个参数aim_qq_num
+如果是上面这个文本，那么就发送四条消息，第一条是文本消息“你好呀”，第二条是图片，提取C:/example.png路径的图片发送，如果不符合支持的格式或者文件不存在就发送文本%[C:/example.png]，第三条是文字，第四条是语音，不符合支持或者文件不存在和前文一样处理

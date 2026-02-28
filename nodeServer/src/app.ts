@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import agentRouter from "./routes/agent.route";
 import cyanRouter from "./routes/cyan.route"
+import { QQtrackRestart } from "./utility/QQ/qq";
 const app = express();
 const PORT = 3000;
 
@@ -20,4 +21,11 @@ app.listen(PORT, () => {
   console.log(`🚀 Server running on Port ${PORT}`);
   console.log(`👉 Test: http://localhost:${PORT}/api/agent/status`);
   console.log(`=================================`);
+  
+  // 启动 QQ 监听服务
+  QQtrackRestart().then((result) => {
+    console.log(`📱 QQ 监听服务: ${result}`);
+  }).catch((error) => {
+    console.error(`📱 QQ 监听服务启动失败:`, error);
+  });
 });

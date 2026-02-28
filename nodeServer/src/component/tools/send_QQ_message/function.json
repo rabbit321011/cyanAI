@@ -1,0 +1,42 @@
+[{
+  "type": "function",
+  "function": {
+    "name": "send_QQ_message",
+    "description": "向指定QQ号发送消息，支持文本、图片、语音的混合消息。消息格式：使用@br分隔不同消息段，%[文件路径]表示文件（图片或语音）",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "send_text": {"type": "string", "description": "要发送的消息内容，如\"你好啊@br%[C:/example.png]@br这样图片怎么样@br%[C:/example.wav]\""},
+        "aim_qq_num": {"type": "string", "description": "目标QQ号"}
+      },
+      "required": ["send_text", "aim_qq_num"]
+    }
+  }
+},
+{
+  "type": "function",
+  "function": {
+    "name": "get_friend_list",
+    "description": "获取好友列表，返回所有好友的昵称和QQ号",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  }
+},
+{
+  "type": "function",
+  "function": {
+    "name": "upData",
+    "description": "上传执行结果",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "result": {"type": "string", "description": "执行结果的详细描述"}
+      },
+      "required": ["result"]
+    }
+  }
+}
+]

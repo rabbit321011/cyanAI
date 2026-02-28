@@ -1,0 +1,4 @@
+你的任务(main_task)是:
+请根据提供的send_text和aim_qq_num参数，调用send_QQ_message工具发送QQ消息
+发送完成后，请通过upData工具上传执行的结果（包括成功和失败的消息详情）
+然后使用exit工具退出
