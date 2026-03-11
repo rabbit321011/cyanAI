@@ -1,5 +1,7 @@
 // google_call.ts
 import axios from 'axios';
+import { getApiKeyManager } from '../error_type/api_key_manager';
+import { getErrorClassifier } from '../error_type/error_classifier';
 
 // ==========================================
 // 1. 类型定义 (Types & Interfaces)
@@ -87,6 +89,7 @@ export interface TokenUsageResponse {
     model_limits: Record<string, boolean>;
     model_limits_enabled: boolean;
     expires_at: number;
+    equivalent_balance?: number; // 等效余额（人民币）
   };
 }
 
@@ -110,94 +113,156 @@ const cleanUrl = (url: string) => url.replace(/\/v1\/?$/, '').replace(/\/+$/, ''
 // ==========================================
 
 /**
- * [功能 1] 向 Google Gemini 发送请求 (支持多模态和函数调用)
+ * [功能 1] 向 Google Gemini 发送请求 (支持多模态和函数调用，带故障转移)
  */
 export async function callGoogleLLM(
   request: EasyGeminiRequest,
-  apiKey: string,
+  apiKey?: string,
   model: string = 'gemini-2.0-flash', 
-  baseUrl: string = 'https://generativelanguage.googleapis.com'
+  baseUrl?: string
 ): Promise<EasyGeminiResponse> {
   
-  const cleanBaseUrl = cleanUrl(baseUrl);
-  const url = `${cleanBaseUrl}/v1beta/models/${model}:generateContent?key=${apiKey}`;
-
-  const payload: any = {
-    contents: request.contents,
-    safetySettings: MINIMAL_SAFETY_SETTINGS,
-  };
-
-  if (request.systemInstruction) {
-    payload.systemInstruction = { parts: [{ text: request.systemInstruction }] };
-  }
-  if (request.generationConfig) { payload.generationConfig = request.generationConfig; }
-  if (request.tools && request.tools.length > 0) { payload.tools = request.tools; }
-
-  const headers: any = { 
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${apiKey}` 
-  };
-
-  try {
-    const response = await axios.post(url, payload, { headers });
-    const responseData = response.data;
-    const parts = responseData?.candidates?.[0]?.content?.parts || [];
+  const keyManager = getApiKeyManager();
+  const errorClassifier = getErrorClassifier();
+  
+  let lastError: Error | null = null;
+  let attempts = 0;
+  const maxAttempts = 3; // 每个 key 最多重试 3 次
+  
+  while (true) {
+    const currentKey = keyManager.getCurrentKey();
     
-    const result: EasyGeminiResponse = { text: '', rawResponse: responseData };
-    const extractedFunctionCalls: Array<{ name: string; args: any; thoughtSignature?: string }> = [];
-
-    for (const part of parts) {
-      if (part.text) result.text += part.text; 
-      if (part.functionCall) {
-        extractedFunctionCalls.push({ 
-          name: part.functionCall.name, 
-          args: part.functionCall.args,
-          thoughtSignature: part.thoughtSignature
-        });
-      }
+    if (!currentKey) {
+      console.error('❌ 没有可用的 API key');
+      throw lastError || new Error('没有可用的 API key');
     }
+    
+    // 使用传入的参数或当前 key 的配置
+    const useApiKey = apiKey || currentKey.key;
+    const useBaseUrl = baseUrl || currentKey.baseUrl;
+    
+    const cleanBaseUrl = cleanUrl(useBaseUrl);
+    const url = `${cleanBaseUrl}/v1beta/models/${model}:generateContent?key=${useApiKey}`;
 
-    if (extractedFunctionCalls.length > 0) result.functionCalls = extractedFunctionCalls;
+    const payload: any = {
+      contents: request.contents,
+      safetySettings: MINIMAL_SAFETY_SETTINGS,
+    };
 
-    // 显示 token 使用情况
-    const usageMetadata = responseData?.usageMetadata || responseData?.usage || {};
-    if (usageMetadata) {
-      console.log('💾 Token 使用情况:');
-      const usdPerToken = 600 / 300000000; // 600刀对应3亿tokens
-      
-      if (usageMetadata.promptTokenCount !== undefined) {
-        const promptTokens = usageMetadata.promptTokenCount;
-        const promptCny = promptTokens * usdPerToken * (80 / 600);
-        console.log('  输入 Token:', promptTokens + '(￥' + promptCny.toFixed(6) + ')');
-      }
-      
-      if (usageMetadata.candidatesTokenCount !== undefined) {
-        const outputTokens = usageMetadata.candidatesTokenCount;
-        const outputCny = outputTokens * usdPerToken * (80 / 600);
-        console.log('  输出 Token:', outputTokens + '(￥' + outputCny.toFixed(6) + ')');
-      }
-      
-      if (usageMetadata.totalTokenCount !== undefined) {
-        const totalTokens = usageMetadata.totalTokenCount;
-        const totalCny = totalTokens * usdPerToken * (80 / 600);
-        console.log('  总计 Token:', totalTokens + '(￥' + totalCny.toFixed(6) + ')');
-      }
-      
-      if (usageMetadata.total_used !== undefined) {
-        console.log('  已使用总量:', usageMetadata.total_used);
-      }
-      
-      if (usageMetadata.total_available !== undefined) {
-        console.log('  可用剩余:', usageMetadata.total_available);
-      }
+    if (request.systemInstruction) {
+      payload.systemInstruction = { parts: [{ text: request.systemInstruction }] };
     }
+    if (request.generationConfig) { payload.generationConfig = request.generationConfig; }
+    if (request.tools && request.tools.length > 0) { payload.tools = request.tools; }
 
-    return result;
+    const headers: any = { 
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${useApiKey}` 
+    };
 
-  } catch (error: any) {
-    const errorDetails = error?.response?.data || error.message;
-    console.error("❌ LLM API 请求失败:", JSON.stringify(errorDetails, null, 2));
-    throw new Error(`请求大模型失败: ${error.message}`);
+    console.log(`开始调用 Gemini 模型 (Key 优先级: ${currentKey.priority}, 尝试: ${attempts + 1})`);
+    
+    const TIMEOUT_MS = 90000; // 90秒超时
+    const PROGRESS_INTERVAL = 15000; // 每15秒打印一次进度
+    
+    // 创建进度日志定时器
+    let elapsedTime = 0;
+    const progressTimer = setInterval(() => {
+      elapsedTime += PROGRESS_INTERVAL;
+      const elapsedSeconds = elapsedTime / 1000;
+      const totalSeconds = TIMEOUT_MS / 1000;
+      console.log(`超时时间：${elapsedSeconds}/${totalSeconds}`);
+    }, PROGRESS_INTERVAL);
+    
+    try {
+      const response = await axios.post(url, payload, { headers, timeout: TIMEOUT_MS });
+      
+      // 请求成功，清除定时器
+      clearInterval(progressTimer);
+      const responseData = response.data;
+      const parts = responseData?.candidates?.[0]?.content?.parts || [];
+      
+      const result: EasyGeminiResponse = { text: '', rawResponse: responseData };
+      const extractedFunctionCalls: Array<{ name: string; args: any; thoughtSignature?: string }> = [];
+
+      for (const part of parts) {
+        if (part.text) result.text += part.text; 
+        if (part.functionCall) {
+          extractedFunctionCalls.push({ 
+            name: part.functionCall.name, 
+            args: part.functionCall.args,
+            thoughtSignature: part.thoughtSignature
+          });
+        }
+      }
+
+      if (extractedFunctionCalls.length > 0) result.functionCalls = extractedFunctionCalls;
+
+      // 显示 token 使用情况
+      const usageMetadata = responseData?.usageMetadata || responseData?.usage || {};
+      if (usageMetadata) {
+        console.log('💾 Token 使用情况:');
+        const usdPerToken = 600 / 300000000;
+        
+        if (usageMetadata.promptTokenCount !== undefined) {
+          const promptTokens = usageMetadata.promptTokenCount;
+          const promptCny = promptTokens * usdPerToken * (80 / 600);
+          console.log('  输入 Token:', promptTokens + '(￥' + promptCny.toFixed(6) + ')');
+        }
+        
+        if (usageMetadata.candidatesTokenCount !== undefined) {
+          const outputTokens = usageMetadata.candidatesTokenCount;
+          const outputCny = outputTokens * usdPerToken * (80 / 600);
+          console.log('  输出 Token:', outputTokens + '(￥' + outputCny.toFixed(6) + ')');
+        }
+        
+        if (usageMetadata.totalTokenCount !== undefined) {
+          const totalTokens = usageMetadata.totalTokenCount;
+          const totalCny = totalTokens * usdPerToken * (80 / 600);
+          console.log('  总计 Token:', totalTokens + '(￥' + totalCny.toFixed(6) + ')');
+        }
+      }
+
+      console.log('✅ 结束调用 Gemini 模型');
+      return result;
+
+    } catch (error: any) {
+      // 请求失败或出错，清除定时器
+      clearInterval(progressTimer);
+      
+      attempts++;
+      lastError = error;
+      
+      const classifiedError = errorClassifier.classifyError(error);
+      const errorDetails = error?.response?.data || error.message;
+      
+      console.error(`❌ LLM API 请求失败 (Key 优先级: ${currentKey.priority}):`, classifiedError.message);
+      console.error('错误详情:', JSON.stringify(errorDetails, null, 2));
+      
+      if (classifiedError.action === 'switch_api') {
+        console.log(`🔄 错误类型需要切换 API: ${classifiedError.message}`);
+        const nextKey = keyManager.switchToNextKey();
+        
+        if (!nextKey) {
+          console.error('❌ 所有 API key 都不可用');
+          throw new Error(`所有 API key 都不可用。最后错误: ${classifiedError.message}`);
+        }
+        
+        console.log(`✅ 已切换到 API key ${nextKey.priority}`);
+        attempts = 0; // 重置尝试次数
+        continue; // 使用新 key 重试
+      }
+      
+      if (classifiedError.action === 'retry' && attempts < maxAttempts) {
+        console.log(`🔄 可重试错误，${attempts}/${maxAttempts} 次尝试`);
+        const delay = Math.pow(2, attempts) * 1000; // 指数退避
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue; // 重试当前 key
+      }
+      
+      // 不可重试或已用尽重试次数
+      throw new Error(`请求大模型失败: ${classifiedError.message}`);
+    }
   }
 }
 
@@ -231,10 +296,14 @@ export async function getAvailableModels(
 
 /**
  * [功能 3] 获取当前 API Key 的额度使用情况 (New API 专属)
+ * @param apiKey API 密钥
+ * @param baseUrl API 基础 URL
+ * @param keyValue 该 API Key 的总价值（人民币），用于计算等效余额
  */
 export async function getTokenUsage(
   apiKey: string,
-  baseUrl: string
+  baseUrl: string,
+  keyValue?: number
 ): Promise<TokenUsageResponse> {
   const cleanBaseUrl = cleanUrl(baseUrl);
   const url = `${cleanBaseUrl}/api/usage/token`;
@@ -243,7 +312,24 @@ export async function getTokenUsage(
     const response = await axios.get(url, {
       headers: { 'Authorization': `Bearer ${apiKey}` }
     });
-    return response.data;
+    
+    const result: TokenUsageResponse = response.data;
+    
+    // 如果提供了 keyValue 且数据有效，计算等效余额
+    if (keyValue && result.code && result.data) {
+      const data = result.data;
+      if (data.unlimited_quota) {
+        // 无限额度时，等效余额等于总价值
+        data.equivalent_balance = keyValue;
+      } else if (data.total_granted > 0) {
+        // 等效余额 = (剩余 token / 总授予 token) * 该 Key 的总价值
+        data.equivalent_balance = parseFloat(
+          ((data.total_available / data.total_granted) * keyValue).toFixed(4)
+        );
+      }
+    }
+    
+    return result;
   } catch (error: any) {
     const errorDetails = error?.response?.data || error.message;
     console.error("❌ 获取令牌额度失败:", JSON.stringify(errorDetails, null, 2));

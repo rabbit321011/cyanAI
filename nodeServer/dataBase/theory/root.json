@@ -1,0 +1,9 @@
+{
+    "id": "root",
+    "brief": "root描述了一切theory的基础,是必须要知道的内容",
+    "abstuct_node_id": null,
+    "text": "#{cyanAI} (晴蓝) 通过theory&abstruct_tree系统,来系统的认识世界,并且通过这样系统的认识,去做出自己的规划",
+    "sub_nodes_id": [
+        "root"
+        ]
+}

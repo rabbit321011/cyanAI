@@ -2,15 +2,17 @@
 import {inlineData,functionCall,functionResponse,Message,MemoryState,LinesP,EventOutputItem} from '../../types/process/process.type'
 import {readIni} from '../../utility/file_operation/read_ini'
 import {loadInitialEvents} from '../events/event_loader'
-import {now} from '../../utility/time/cyan_time'
+import {now, sub, compare} from '../../utility/time/cyan_time'
 import fs from 'fs';
 import path from 'path';
 import { callGoogleLLM, EasyGeminiRequest } from '../../utility/LLM_call/google_call';
+import { callDeepSeekTemp } from '../../utility/temp/deepseek_call';
 import { isError } from '../../utility/error_out/error_out';
 import { remove_timestamp } from '../escaper/remove_timestamp';
 import { saveEvent } from '../events/event_saver';
 import { excuteTool } from './tool_process';
 import { QQidleSignal } from '../../utility/QQ/qq';
+import { getApiKeyManager } from '../../utility/error_type/api_key_manager';
 export interface workspace_ent{
     index:string,//以ws开头，然后是序号
     current:string//这里写着%[文件的完整路径]或者直接是文件内容
@@ -260,13 +262,13 @@ export function addMessageFromString(addition:string,type:string = "user",name:s
         /*
         export interface Message {
         current:string;//这是原始的文本内容，是没有转义的,不带时间和发言人
-        role_type:string;//这是发言人的类型,可以是function,user,或者model
-        role:string;//这是发言者的名字,如果是role_type==function,这里为空
-        time:string;//这是基于cyanTime的标准时间字符串，如果role_type==function,这里为空
-        file:string[];//这是附带的文件,是一个数组，每个成员都是一个完整的文件路径，如果role_type==function,这里为空
-        inline:inlineData[];//这是附带的内联文件，如果role_type==function,这里为空
-        toolsCalls?:functionCall[];//这是做出的functionCall，如果role_type==function,这里为空
-        toolsResponse?:functionResponse[];//这是回答的functionResponse，如果role_type!=function,这里为空
+        role_type:string;//这是发言人的类型,可以是user,或者model
+        role:string;//这是发言者的名字
+        time:string;//这是基于cyanTime的标准时间字符串
+        file:string[];//这是附带的文件,是一个数组，每个成员都是一个完整的文件路径
+        inline:inlineData[];//这是附带的内联文件
+        toolsCalls?:functionCall[];//这是做出的functionCall，只有model类型才有
+        toolsResponse?:functionResponse[];//这是回答的functionResponse，只有user类型才有
         } 
         */
     let temp_Message:Message = {...default_Message};
@@ -280,13 +282,117 @@ export function addMessageFromString(addition:string,type:string = "user",name:s
     main_status?.context.push(temp_Message);
     return "SUCCESS:执行完成"
 }//这个函数添加一个Message,接口比较完善
+
+async function summarizeImage(imageData: inlineData): Promise<string> {
+    const request: EasyGeminiRequest = {
+        contents: [{
+            role: 'user',
+            parts: [
+                { text: '请描述这张图片的内容。如果图片中包含文档或文字，请完整列出所有可见的文字；如果是普通图片，请详细描述画面内容、人物、场景、色彩等，尽量100字以内。格式：直接输出描述内容，不要加任何前缀。' },
+                { inlineData: { mimeType: imageData.mimeType, data: imageData.data } }
+            ]
+        }],
+        generationConfig: {
+            temperature: 0.3,
+            maxOutputTokens: 500
+        }
+    };
+    
+    try {
+        const response = await callGoogleLLM(
+            request,
+            readIni(path.join(__dirname, '../../../library_source.ini'), 'google_api_key'),
+            "gemini-2.5-flash",
+            readIni(path.join(__dirname, '../../../library_source.ini'), 'google_base_url')
+        );
+        return response.text || '[图片内容无法识别]';
+    } catch (error) {
+        console.error('图片总结失败:', error);
+        return '[图片内容无法识别]';
+    }
+}
+
+async function processImageSummaries(): Promise<void> {
+    if (!main_status) return;
+    
+    const currentTime = now();
+    const expireTime = '10min'; // 10分钟过期
+    const maxRecentImages = 7; // 最近7张图片不总结
+    
+    // 从后往前统计图片数量，标记哪些图片是"最近的"
+    let recentImageCount = 0;
+    const messageImageStatus: { index: number; isRecent: boolean; imageCount: number }[] = [];
+    
+    for (let i = main_status.context.length - 1; i >= 0; i--) {
+        const msg = main_status.context[i];
+        if (msg.inline && msg.inline.length > 0) {
+            const imageCount = msg.inline.length;
+            const isRecent = recentImageCount < maxRecentImages;
+            messageImageStatus.unshift({ index: i, isRecent, imageCount });
+            recentImageCount += imageCount;
+        }
+    }
+    
+    // 处理每条消息中的图片
+    for (const status of messageImageStatus) {
+        const msg = main_status.context[status.index];
+        if (!msg.inline || msg.inline.length === 0) continue;
+        
+        // 检查时间是否过期
+        const timeDiff = sub(currentTime, msg.time);
+        const isExpired = compare(timeDiff, expireTime) >= 0;
+        
+        // 如果不是最近的图片或者已过期，需要总结
+        if (!status.isRecent || isExpired) {
+            // 总结每张图片
+            const summaries: string[] = [];
+            for (const img of msg.inline) {
+                const summary = await summarizeImage(img);
+                summaries.push(summary);
+            }
+            
+            // 更新消息：移除图片，添加文本描述
+            // 使用与其他消息相同的格式：^role:time:content
+            const imageDescription = summaries.map((s, idx) => {
+                const prefix = summaries.length === 1 ? '这张图片的内容是：' : `图片${idx + 1}的内容是：`;
+                return `^${msg.role}:${msg.time}:${prefix}${s}`;
+            }).join('\n');
+            
+            // 追加到 current 文本
+            if (msg.current) {
+                msg.current += '\n' + imageDescription;
+            } else {
+                msg.current = imageDescription;
+            }
+            
+            // 清空 inline
+            msg.inline = [];
+            
+            console.log(`已总结消息 ${status.index} 的 ${summaries.length} 张图片`);
+        }
+    }
+    
+    // 保存状态到文件，确保总结结果持久化
+    if (messageImageStatus.length > 0) {
+        const saveResult = saveCoreStateForFile();
+        if (saveResult.startsWith("ERROR")) {
+            console.error("保存图片总结结果失败:", saveResult);
+        } else {
+            console.log("图片总结结果已保存到文件");
+        }
+    }
+}
+
 export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:number = 2000):Promise<string>
 {
     
     main_virtual_busy = true;
-    if(verify_context() && main_status)
+    if(verify_context() && verify_chatable() && main_status)
     {
         try{
+            // 先处理图片总结
+            await processImageSummaries();
+            
             //先生成系统部分的提示词
             let system_temp_prompt = "";
             system_temp_prompt += main_status.system.main_prompt + "\n";
@@ -310,48 +416,85 @@ export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:num
             })
             //系统提示词生成完成，载入对话记录
             let content_temp:content_unit[] = []
+            let last_unit:content_unit|null = null
+            
             main_status.context.map((curr)=>{
-                //依次载入
-                let temp_content_unit:content_unit = {
-                    role:curr.role_type,
-                    parts:[]
-                }
-
-                if(curr.current !== "")
-                {   
-                    let temp_text = "";
-                    temp_text += '^' + curr.role + ':' + curr.time + ':' + curr.current;
-                    temp_content_unit.parts.push({text:temp_text});
-                }
-                //if(curr.file.length !== 0)
-                //curr.file[]附带的文件暂且忽略掉
-                if(curr.inline.length !== 0)
-                    curr.inline.map((inlineUnit)=>{
-                        temp_content_unit.parts.push({inlineData:{mimeType:inlineUnit.mimeType,data:inlineUnit.data}});
-                    })
-                // 处理工具调用
-            if(curr.toolsCalls && curr.toolsCalls.length > 0) {
-                curr.toolsCalls.map((toolCall) => {
-                    const part: any = {
-                        functionCall: {
-                            name: `default_api:${toolCall.name}`,
-                            args: toolCall.args
-                        }
-                    };
-                    if(toolCall.thoughtSignature) {
-                        part.thoughtSignature = toolCall.thoughtSignature;
+                //检查是否可以和上一条合并（相同role_type）
+                if(last_unit && last_unit.role === curr.role_type) {
+                    //合并到同一个content_unit的parts中
+                    if(curr.current !== "")
+                    {   
+                        let temp_text = "";
+                        temp_text += '^' + curr.role + ':' + curr.time + ':' + curr.current;
+                        last_unit.parts.push({text:temp_text});
                     }
-                    temp_content_unit.parts.push(part);
-                });
-            }
-            // 处理工具响应
-            if(curr.toolsResponse && curr.toolsResponse.length > 0) {
-                curr.toolsResponse.map((toolResponse) => {
-                    temp_content_unit.parts.push({functionResponse: {name: toolResponse.name, response: toolResponse.response}});
-                });
-            }
-                //然后把载入好的unit载入总集
-                content_temp.push(temp_content_unit);
+                    if(curr.inline.length !== 0)
+                        curr.inline.map((inlineUnit)=>{
+                            last_unit!.parts.push({inlineData:{mimeType:inlineUnit.mimeType,data:inlineUnit.data}});
+                        })
+                    // 处理工具调用（只有 model 类型的消息才有）
+                    if(curr.role_type === 'model' && curr.toolsCalls && curr.toolsCalls.length > 0) {
+                        curr.toolsCalls.map((toolCall) => {
+                            const part: any = {
+                                functionCall: {
+                                    name: `default_api:${toolCall.name}`,
+                                    args: toolCall.args
+                                }
+                            };
+                            if(toolCall.thoughtSignature) {
+                                part.thoughtSignature = toolCall.thoughtSignature;
+                            }
+                            last_unit!.parts.push(part);
+                        });
+                    }
+                    // 处理工具响应（只有 user 类型的消息才有）
+                    if(curr.role_type === 'user' && curr.toolsResponse && curr.toolsResponse.length > 0) {
+                        curr.toolsResponse.map((toolResponse) => {
+                            last_unit!.parts.push({functionResponse: {name: toolResponse.name, response: toolResponse.response}});
+                        });
+                    }
+                } else {
+                    //创建新的content_unit
+                    let temp_content_unit:content_unit = {
+                        role:curr.role_type,
+                        parts:[]
+                    }
+
+                    if(curr.current !== "")
+                    {   
+                        let temp_text = "";
+                        temp_text += '^' + curr.role + ':' + curr.time + ':' + curr.current;
+                        temp_content_unit.parts.push({text:temp_text});
+                    }
+                    if(curr.inline.length !== 0)
+                        curr.inline.map((inlineUnit)=>{
+                            temp_content_unit.parts.push({inlineData:{mimeType:inlineUnit.mimeType,data:inlineUnit.data}});
+                        })
+                    // 处理工具调用（只有 model 类型的消息才有）
+                    if(curr.role_type === 'model' && curr.toolsCalls && curr.toolsCalls.length > 0) {
+                        curr.toolsCalls.map((toolCall) => {
+                            const part: any = {
+                                functionCall: {
+                                    name: `default_api:${toolCall.name}`,
+                                    args: toolCall.args
+                                }
+                            };
+                            if(toolCall.thoughtSignature) {
+                                part.thoughtSignature = toolCall.thoughtSignature;
+                            }
+                            temp_content_unit.parts.push(part);
+                        });
+                    }
+                    // 处理工具响应（只有 user 类型的消息才有）
+                    if(curr.role_type === 'user' && curr.toolsResponse && curr.toolsResponse.length > 0) {
+                        curr.toolsResponse.map((toolResponse) => {
+                            temp_content_unit.parts.push({functionResponse: {name: toolResponse.name, response: toolResponse.response}});
+                        });
+                    }
+                    
+                    content_temp.push(temp_content_unit);
+                    last_unit = temp_content_unit;
+                }
             })
             //载入完成
             // 从 main.json 读取 tools 配置
@@ -377,12 +520,23 @@ export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:num
                 tools: toolsConfig
             }
             //console.log(request.contents[0].parts[0].text)
-            let response = await callGoogleLLM(
-                request,
-                readIni(path.join(__dirname,'../../../library_source.ini'),'google_api_key'),
-                "gemini-2.5-flash",
-                readIni(path.join(__dirname,'../../../library_source.ini'),'google_base_url')
-            )
+            const llmSource = readIni(path.join(__dirname,'../../../library_source.ini'),'main_virtual_source');
+            let response;
+            if (llmSource === 'deepseek') {
+                response = await callDeepSeekTemp(
+                    request,
+                    readIni(path.join(__dirname,'../../../library_source.ini'),'deepseek_api_sky'),
+                    "deepseek-chat",
+                    "https://api.deepseek.com"
+                );
+            } else {
+                response = await callGoogleLLM(
+                    request,
+                    readIni(path.join(__dirname,'../../../library_source.ini'),'google_api_key'),
+                    "gemini-3-pro-preview",
+                    readIni(path.join(__dirname,'../../../library_source.ini'),'google_base_url')
+                );
+            }
             /*
 1. gemini-3.1-pro-preview - 最新的 Pro 版本预览，功能最全面
 2. gemini-3-pro-preview - 当前代码中使用的模型，性能和功能都很强大
@@ -394,23 +548,78 @@ export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:num
 ### 其他特殊模型
              */
             // 检查是否有函数调用
-            if (response.functionCalls && response.functionCalls.length > 0) {
+            // 如果第一次请求返回空内容，进行重试和API切换
+            let initialRetryCount = 0;
+            const initialMaxRetries = 3;
+            let currentKey = getApiKeyManager().getCurrentKey();
+            
+            while (!response.text && (!response.functionCalls || response.functionCalls.length === 0)) {
+                initialRetryCount++;
+                
+                if (initialRetryCount <= initialMaxRetries) {
+                    console.log(`⚠️ 第一次请求返回空内容，正在重新请求... (第 ${initialRetryCount} 次重试)`);
+                } else {
+                    // 重试3次后切换API
+                    console.log(`⚠️ 重试 ${initialMaxRetries} 次后仍返回空内容，尝试切换 API 源...`);
+                    const nextKey = getApiKeyManager().switchToNextKey();
+                    
+                    if (!nextKey) {
+                        console.error('❌ 所有 API 源都已尝试，无法获取有效响应');
+                        throw new Error('所有 API 源都返回空内容，请检查服务状态');
+                    }
+                    
+                    currentKey = nextKey;
+                    console.log(`🔄 已切换到 API key ${currentKey?.priority}`);
+                    initialRetryCount = 1; // 重置重试计数
+                }
+                
+                if (llmSource === 'deepseek') {
+                    response = await callDeepSeekTemp(
+                        request,
+                        readIni(path.join(__dirname,'../../../library_source.ini'),'deepseek_api_sky'),
+                        "deepseek-chat",
+                        "https://api.deepseek.com"
+                    );
+                } else {
+                    response = await callGoogleLLM(
+                        request,
+                        currentKey?.key || readIni(path.join(__dirname,'../../../library_source.ini'),'google_api_key'),
+                        "gemini-3-pro-preview",
+                        currentKey?.baseUrl || readIni(path.join(__dirname,'../../../library_source.ini'),'google_base_url')
+                    );
+                }
+            }
+            
+            // 处理 function calls 的循环，直到模型返回文本
+            let functionCallLoopCount = 0;
+            const maxFunctionCallLoops = 10; // 防止无限循环
+            
+            while (response.functionCalls && response.functionCalls.length > 0 && functionCallLoopCount < maxFunctionCallLoops) {
+                functionCallLoopCount++;
+                console.log(`🔄 处理第 ${functionCallLoopCount} 轮 function calls`);
                 
                 // 为每个函数调用生成响应
                 for (const functionCall of response.functionCalls) {
                     
-                    // 记录函数调用
+                    // 检查 thoughtSignature 是否存在
+                    if (!functionCall.thoughtSignature) {
+                        const errorMsg = `错误：函数调用 ${functionCall.name} 缺少 thoughtSignature 字段`;
+                        console.log('❌', errorMsg);
+                        throw new Error(errorMsg);
+                    }
+
+                    // 记录函数调用（由 model 发出）
                     const functionCallMessage: Message = {
                         current: '',
-                        role_type: 'function',
-                        role: '',
-                        time: '',
+                        role_type: 'model',
+                        role: 'cyanAI',
+                        time: now(),
                         file: [],
                         inline: [],
                         toolsCalls: [{
                             name: functionCall.name.replace('default_api:', ''),
                             args: functionCall.args,
-                            thoughtSignature: functionCall.thoughtSignature || `调用了${functionCall.name.replace('default_api:', '')}`
+                            thoughtSignature: functionCall.thoughtSignature
                         }],
                         toolsResponse: []
                     };
@@ -431,12 +640,12 @@ export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:num
                         console.error(`工具调用失败：`, error);
                         toolResult = `工具调用失败：${error.message || '未知错误'}`;
                     }
-                    // 生成成功响应
+                    // 生成成功响应（由 user 发出）
                     const functionResponseMessage: Message = {
                         current: '',
-                        role_type: 'function',
-                        role: '',
-                        time: '',
+                        role_type: 'user',
+                        role: 'system',
+                        time: now(),
                         file: [],
                         inline: [],
                         toolsCalls: [],
@@ -462,86 +671,315 @@ export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:num
                 };
                 
                 // 重新构建内容，包含函数调用和响应
+                // 使用与初始构建相同的合并逻辑
                 const retryContent: content_unit[] = [];
+                let last_retry_unit: content_unit | null = null;
+                
                 main_status?.context.map((curr) => {
-                    const temp_unit: content_unit = {
-                        role: curr.role_type,
-                        parts: []
-                    };
-                    
-                    if (curr.current !== "") {
-                        const temp_text = '^' + curr.role + ':' + curr.time + ':' + curr.current;
-                        temp_unit.parts.push({ text: temp_text });
-                    }
-                    
-                    if (curr.inline.length !== 0) {
-                        curr.inline.map((inlineUnit) => {
-                            temp_unit.parts.push({ inlineData: { mimeType: inlineUnit.mimeType, data: inlineUnit.data } });
-                        });
-                    }
-                    
-                    if (curr.toolsCalls && curr.toolsCalls.length > 0) {
-                        curr.toolsCalls.map((toolCall) => {
-                            const part: any = {
-                                functionCall: {
-                                    name: `default_api:${toolCall.name}`,
-                                    args: toolCall.args
+                    // 检查是否可以和上一条合并（相同role_type）
+                    if (last_retry_unit && last_retry_unit.role === curr.role_type) {
+                        // 合并到同一个content_unit的parts中
+                        if (curr.current !== "") {
+                            const temp_text = '^' + curr.role + ':' + curr.time + ':' + curr.current;
+                            last_retry_unit.parts.push({ text: temp_text });
+                        }
+                        
+                        if (curr.inline.length !== 0) {
+                            curr.inline.map((inlineUnit) => {
+                                last_retry_unit!.parts.push({ inlineData: { mimeType: inlineUnit.mimeType, data: inlineUnit.data } });
+                            });
+                        }
+                        
+                        // 处理工具调用（只有 model 类型的消息才有）
+                        if (curr.role_type === 'model' && curr.toolsCalls && curr.toolsCalls.length > 0) {
+                            curr.toolsCalls.map((toolCall) => {
+                                const part: any = {
+                                    functionCall: {
+                                        name: `default_api:${toolCall.name}`,
+                                        args: toolCall.args
+                                    }
+                                };
+                                if (toolCall.thoughtSignature) {
+                                    part.thoughtSignature = toolCall.thoughtSignature;
                                 }
-                            };
-                            if(toolCall.thoughtSignature) {
-                                part.thoughtSignature = toolCall.thoughtSignature;
-                            }
-                            temp_unit.parts.push(part);
-                        });
+                                last_retry_unit!.parts.push(part);
+                            });
+                        }
+                        
+                        // 处理工具响应（只有 user 类型的消息才有）
+                        if (curr.role_type === 'user' && curr.toolsResponse && curr.toolsResponse.length > 0) {
+                            curr.toolsResponse.map((toolResponse) => {
+                                last_retry_unit!.parts.push({ functionResponse: { name: toolResponse.name, response: toolResponse.response } });
+                            });
+                        }
+                    } else {
+                        // 创建新的content_unit
+                        const temp_unit: content_unit = {
+                            role: curr.role_type,
+                            parts: []
+                        };
+                        
+                        if (curr.current !== "") {
+                            const temp_text = '^' + curr.role + ':' + curr.time + ':' + curr.current;
+                            temp_unit.parts.push({ text: temp_text });
+                        }
+                        
+                        if (curr.inline.length !== 0) {
+                            curr.inline.map((inlineUnit) => {
+                                temp_unit.parts.push({ inlineData: { mimeType: inlineUnit.mimeType, data: inlineUnit.data } });
+                            });
+                        }
+                        
+                        // 处理工具调用（只有 model 类型的消息才有）
+                        if (curr.role_type === 'model' && curr.toolsCalls && curr.toolsCalls.length > 0) {
+                            curr.toolsCalls.map((toolCall) => {
+                                const part: any = {
+                                    functionCall: {
+                                        name: `default_api:${toolCall.name}`,
+                                        args: toolCall.args
+                                    }
+                                };
+                                if (toolCall.thoughtSignature) {
+                                    part.thoughtSignature = toolCall.thoughtSignature;
+                                }
+                                temp_unit.parts.push(part);
+                            });
+                        }
+                        
+                        // 处理工具响应（只有 user 类型的消息才有）
+                        if (curr.role_type === 'user' && curr.toolsResponse && curr.toolsResponse.length > 0) {
+                            curr.toolsResponse.map((toolResponse) => {
+                                temp_unit.parts.push({ functionResponse: { name: toolResponse.name, response: toolResponse.response } });
+                            });
+                        }
+                        
+                        retryContent.push(temp_unit);
+                        last_retry_unit = temp_unit;
                     }
-                    
-                    if (curr.toolsResponse && curr.toolsResponse.length > 0) {
-                        curr.toolsResponse.map((toolResponse) => {
-                            temp_unit.parts.push({ functionResponse: { name: toolResponse.name, response: toolResponse.response } });
-                        });
-                    }
-                    
-                    retryContent.push(temp_unit);
                 });
                 
                 retryRequest.contents = retryContent;
                 
-                response = await callGoogleLLM(
-                    retryRequest,
-                    readIni(path.join(__dirname, '../../../library_source.ini'), 'google_api_key'),
-                    "gemini-3-pro-preview",
-                    readIni(path.join(__dirname, '../../../library_source.ini'), 'google_base_url')
-                );
+                if (llmSource === 'deepseek') {
+                    response = await callDeepSeekTemp(
+                        retryRequest,
+                        readIni(path.join(__dirname, '../../../library_source.ini'), 'deepseek_api_sky'),
+                        "deepseek-chat",
+                        "https://api.deepseek.com"
+                    );
+                } else {
+                    response = await callGoogleLLM(
+                        retryRequest,
+                        readIni(path.join(__dirname, '../../../library_source.ini'), 'google_api_key'),
+                        "gemini-3-pro-preview",
+                        readIni(path.join(__dirname, '../../../library_source.ini'), 'google_base_url')
+                    );
+                }
+                
+                // 如果返回空内容，继续重新请求（重试+切换API）
+                let retryCount = 0;
+                const maxRetries = 3;
+                let retryKey = currentKey; // 使用当前key
+                
+                while (!response.text && (!response.functionCalls || response.functionCalls.length === 0)) {
+                    retryCount++;
+                    
+                    if (retryCount <= maxRetries) {
+                        console.log(`⚠️ 模型返回空内容，正在重新请求... (第 ${retryCount} 次重试)`);
+                    } else {
+                        // 重试3次后切换API
+                        console.log(`⚠️ 重试 ${maxRetries} 次后仍返回空内容，尝试切换 API 源...`);
+                        const nextKey = getApiKeyManager().switchToNextKey();
+                        
+                        if (!nextKey) {
+                            console.error('❌ 所有 API 源都已尝试，无法获取有效响应');
+                            throw new Error('所有 API 源都返回空内容，请检查服务状态');
+                        }
+                        
+                        retryKey = nextKey;
+                        console.log(`🔄 已切换到 API key ${retryKey?.priority}`);
+                        retryCount = 1; // 重置重试计数
+                    }
+                    
+                    // 重新构建内容
+                    const retryContent2: content_unit[] = [];
+                    let last_retry_unit2: content_unit | null = null;
+                    
+                    main_status?.context.map((curr) => {
+                        if (last_retry_unit2 && last_retry_unit2.role === curr.role_type) {
+                            if (curr.current !== "") {
+                                const temp_text = '^' + curr.role + ':' + curr.time + ':' + curr.current;
+                                last_retry_unit2.parts.push({ text: temp_text });
+                            }
+                            if (curr.inline.length !== 0) {
+                                curr.inline.map((inlineUnit) => {
+                                    last_retry_unit2!.parts.push({ inlineData: { mimeType: inlineUnit.mimeType, data: inlineUnit.data } });
+                                });
+                            }
+                            if (curr.role_type === 'model' && curr.toolsCalls && curr.toolsCalls.length > 0) {
+                                curr.toolsCalls.map((toolCall) => {
+                                    const part: any = {
+                                        functionCall: {
+                                            name: `default_api:${toolCall.name}`,
+                                            args: toolCall.args
+                                        }
+                                    };
+                                    if (toolCall.thoughtSignature) {
+                                        part.thoughtSignature = toolCall.thoughtSignature;
+                                    }
+                                    last_retry_unit2!.parts.push(part);
+                                });
+                            }
+                            if (curr.role_type === 'user' && curr.toolsResponse && curr.toolsResponse.length > 0) {
+                                curr.toolsResponse.map((toolResponse) => {
+                                    last_retry_unit2!.parts.push({ functionResponse: { name: toolResponse.name, response: toolResponse.response } });
+                                });
+                            }
+                        } else {
+                            const temp_unit: content_unit = {
+                                role: curr.role_type,
+                                parts: []
+                            };
+                            if (curr.current !== "") {
+                                const temp_text = '^' + curr.role + ':' + curr.time + ':' + curr.current;
+                                temp_unit.parts.push({ text: temp_text });
+                            }
+                            if (curr.inline.length !== 0) {
+                                curr.inline.map((inlineUnit) => {
+                                    temp_unit.parts.push({ inlineData: { mimeType: inlineUnit.mimeType, data: inlineUnit.data } });
+                                });
+                            }
+                            if (curr.role_type === 'model' && curr.toolsCalls && curr.toolsCalls.length > 0) {
+                                curr.toolsCalls.map((toolCall) => {
+                                    const part: any = {
+                                        functionCall: {
+                                            name: `default_api:${toolCall.name}`,
+                                            args: toolCall.args
+                                        }
+                                    };
+                                    if (toolCall.thoughtSignature) {
+                                        part.thoughtSignature = toolCall.thoughtSignature;
+                                    }
+                                    temp_unit.parts.push(part);
+                                });
+                            }
+                            if (curr.role_type === 'user' && curr.toolsResponse && curr.toolsResponse.length > 0) {
+                                curr.toolsResponse.map((toolResponse) => {
+                                    temp_unit.parts.push({ functionResponse: { name: toolResponse.name, response: toolResponse.response } });
+                                });
+                            }
+                            retryContent2.push(temp_unit);
+                            last_retry_unit2 = temp_unit;
+                        }
+                    });
+                    
+                    retryRequest.contents = retryContent2;
+                    
+                    if (llmSource === 'deepseek') {
+                        response = await callDeepSeekTemp(
+                            retryRequest,
+                            readIni(path.join(__dirname, '../../../library_source.ini'), 'deepseek_api_sky'),
+                            "deepseek-chat",
+                            "https://api.deepseek.com"
+                        );
+                    } else {
+                        response = await callGoogleLLM(
+                            retryRequest,
+                            retryKey?.key || readIni(path.join(__dirname, '../../../library_source.ini'), 'google_api_key'),
+                            "gemini-3-pro-preview",
+                            retryKey?.baseUrl || readIni(path.join(__dirname, '../../../library_source.ini'), 'google_base_url')
+                        );
+                    }
+                }
+                
+                // 如果所有API都尝试过仍返回空内容，抛出错误
+                if (!response.text && (!response.functionCalls || response.functionCalls.length === 0)) {
+                    console.error('❌ 所有 API 源都返回空内容');
+                    throw new Error('所有 API 源都返回空内容，请检查服务状态');
+                }
             }
             
-            console.log(response.text);
-            addMessageFromString(
-                remove_timestamp(response.text),
-                "model",
-                "cyanAI"
-            )
+            // 检查是否超过最大循环次数
+            if (functionCallLoopCount >= maxFunctionCallLoops) {
+                console.error(`❌ 超过最大 function call 循环次数 (${maxFunctionCallLoops})`);
+                throw new Error('模型连续返回 function calls，超过最大处理次数');
+            }
+            
+            // 只有在有文本内容时才添加消息
+            if (response.text && response.text.trim() !== '') {
+                console.log(response.text);
+                addMessageFromString(
+                    remove_timestamp(response.text),
+                    "model",
+                    "cyanAI"
+                );
+            } else if (response.functionCalls && response.functionCalls.length > 0) {
+                // 如果只有 function call 没有文本，不应该到达这里，因为上面已经处理了
+                console.log('⚠️ 模型只返回了 function call，没有文本');
+            }
             //然后存下文件
             saveCoreStateForFile()
             main_virtual_busy = false;
-            QQidleSignal();
+            QQidleSignal().catch((error: any) => {
+                console.error('QQidleSignal调用失败:', error);
+            });
             return "SUCCESS:回复正常"
         }catch{
             main_virtual_busy = false;
-            QQidleSignal();
+            QQidleSignal().catch((error: any) => {
+                console.error('QQidleSignal调用失败:', error);
+            });
             return "ERROR:状态合法但是发生错误"
         }
         
     }
     main_virtual_busy = false;
-    QQidleSignal();
+    QQidleSignal().catch((error: any) => {
+        console.error('QQidleSignal调用失败:', error);
+    });
     return "ERROR:当前状态不合法"
 }//这个函数发送当前的的上下文状态给模型,并且模型的回复会添加在main_status的上下文里
 
+export function verify_chatable():boolean
+{
+//判断是否可以执行sendAll
+//最后一条消息的role_type必须是user
+//注意：functionCall 由 model 发出，functionResponse 由 user 发出
+if(main_status && (main_status.context.length !== 0 ))
+{
+    const last_role_type = main_status.context[main_status.context.length - 1].role_type;
+    return last_role_type === "user";
+}
+return false;
+}//判断是否可以发送消息
+
+export function context_back():string
+{
+//删除靠尾的Message，直到最后一条是user
+//如果最后一条原本就是user，则不管
+//注意：functionCall 由 model 发出，functionResponse 由 user 发出
+if(main_status && (main_status.context.length !== 0 ))
+{
+    while(main_status.context.length > 0)
+    {
+        const last_role_type = main_status.context[main_status.context.length - 1].role_type;
+        if(last_role_type === "user")
+        {
+            return "SUCCESS:上下文已回退";
+        }
+        main_status.context.pop();
+    }
+    return "SUCCESS:上下文已清空";
+}
+return "ERROR:上下文为空";
+}//回退上下文直到最后一条是user或function
+
 export function verify_context():boolean
 {
-//不能有连续的model,user,function后不能是user
+//不能有连续的model
 //第一条得是user
-//最后一条只能是user或者function,不能是model
+//最后一条只能是user，不能是model或function
+//支持多part：允许连续的user消息，它们会被合并到一个content_unit的parts中
 if(main_status && (main_status.context.length !== 0 ))
 {
     const temp_message_length= main_status.context.length
@@ -550,20 +988,16 @@ if(main_status && (main_status.context.length !== 0 ))
     let temp_last_type = "user"
     for(let i = 1 ; i < temp_message_length; i++)
     {
-        if(
-            (temp_last_type === "model" && main_status.context[i].role_type === "model") ||
-            (temp_last_type === "user" && main_status.context[i].role_type === "user") ||
-            (
-                temp_last_type === "function" && main_status.context[i].role_type === "user"
-            )
-        )
+        // 检查是否有连续的 model（functionCall 应该由 model 发出，但会被 user 的 functionResponse 跟随）
+        if(temp_last_type === "model" && main_status.context[i].role_type === "model")
         {
             return false;//有问题
         }
         temp_last_type = main_status.context[i].role_type;
     }
     //单独校验一下最后一条
-    if(main_status.context[temp_message_length - 1].role_type === "model" || main_status.context[temp_message_length - 1].role_type === "function")
+    // 最后一条必须是 user（包含 functionResponse）
+    if(main_status.context[temp_message_length - 1].role_type !== "user")
         return false;
     return true;
 }
@@ -586,7 +1020,21 @@ export async function sendUserMessage(send_curr:string,user_name:string):Promise
     if(send_response)
         return send_response
     return "ERROR:历史记录的最后一条获取失败"
-}//以用户的身份发送信息，暂不支持工具调用
+}//以用户的身份发送信息，不支持工具调用
+
+export function addQueueMessage(send_curr:string,user_name:string,files:string[] = [],inlines:inlineData[] = []):string{
+    //会先判断现在有没有status,如果没有就先新建一个
+    if(!main_status)
+        if(isError(getCoreStateForFile()))
+            return "ERROR:获取内核状态错误"
+    //现在有了内核状态,准备添加从前端传来的消息到队列，但不发送
+    const result = addMessageFromString(send_curr,"user",user_name,files,inlines);
+    if(result.startsWith("SUCCESS"))
+        return "SUCCESS:消息已加入队列"
+    else
+        return "ERROR:添加消息到队列失败"
+}//以用户的身份添加消息到队列，不触发发送
+
 export function exit_status():boolean{
     if(main_status)
         return true;
@@ -604,7 +1052,11 @@ export async function finish_event():Promise<string>{
     //然后压缩事件内容到event,首先会通过sendUserMessage向模型发送一条特殊的名字为system的信息，然后调用
     let temp_res_event_summary:string = await sendUserMessage(readFileSyncAsString(readIni(path.join(__dirname,'../../../library_source.ini'),'event_summary_guide')),'system')
     //然后取得重要程度
-    let temp_res_event_Im:number = Number(await sendUserMessage(readFileSyncAsString(readIni(path.join(__dirname,'../../../library_source.ini'),'event_Im_guide')),'system'))
+    let temp_res_event_Im_raw:string = await sendUserMessage(readFileSyncAsString(readIni(path.join(__dirname,'../../../library_source.ini'),'event_Im_guide')),'system')
+    console.log("模型返回的重要程度原始内容:", temp_res_event_Im_raw);
+    // 从返回的文本中提取数字
+    const numberMatch = temp_res_event_Im_raw.match(/(\d+\.?\d*)/);
+    let temp_res_event_Im:number = numberMatch ? parseFloat(numberMatch[1]) : 0;
     console.log("正在总结对话，该对话的总结内容是"+temp_res_event_summary+ "\n当前对话事件的重要程度是" + temp_res_event_Im.toString())
     //写入事件
     saveEvent(main_status!.context.slice(0,-2),temp_res_event_summary,temp_res_event_Im);

@@ -221,6 +221,6 @@ export async function excuteTool(tool_name:string,requirement:string,wait_mode:b
                 console.error(`工具执行失败: ${error}`)
             }
         )
-        return "该工具已经在执行,执行完成后你将会收到提醒。任务序号:" + task_id 
+        return "该工具已经在执行。任务序号:" + task_id //,执行完成后你将会收到提醒
     }
 }

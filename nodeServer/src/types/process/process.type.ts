@@ -17,13 +17,13 @@ export interface functionResponse{
 }
 export interface Message {
     current:string;//这是原始的文本内容，是没有转义的,不带时间和发言人
-    role_type:string;//这是发言人的类型,可以是function,user,或者model
-    role:string;//这是发言者的名字,如果是role_type==function,这里为空
-    time:string;//这是基于cyanTime的标准时间字符串，如果role_type==function,这里为空
-    file:string[];//这是附带的文件,是一个数组，每个成员都是一个完整的文件路径，如果role_type==function,这里为空
-    inline:inlineData[];//这是附带的内联文件，如果role_type==function,这里为空
-    toolsCalls:functionCall[];//这是做出的functionCall，如果role_type!=model,这里为空
-    toolsResponse:functionResponse[];//这是回答的functionResponse，如果role_type!=function,这里为空
+    role_type:string;//这是发言人的类型,可以是user,或者model
+    role:string;//这是发言者的名字
+    time:string;//这是基于cyanTime的标准时间字符串
+    file:string[];//这是附带的文件,是一个数组，每个成员都是一个完整的文件路径
+    inline:inlineData[];//这是附带的内联文件
+    toolsCalls:functionCall[];//这是做出的functionCall，只有model类型才有
+    toolsResponse:functionResponse[];//这是回答的functionResponse，只有user类型才有
 }
 export interface TextMessage{
     text:string;//这是文本内容
@@ -48,3 +48,7 @@ export interface EventOutputItem {
     source: LinesP;
     current: string;
 }//这玩意是事件列表
+export interface routeOutput{
+    stop:boolean;
+    datas:any;
+}//这玩意是路由的输出
