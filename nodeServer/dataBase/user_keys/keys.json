@@ -1,0 +1,26 @@
+[
+  {
+    "key": "ZGWJLBRO",
+    "quota": 0,
+    "total_quota": 1,
+    "permission": "user",
+    "creator_qq": "2926855205",
+    "created_at": "2026-03-15T04:59:34.600Z"
+  },
+  {
+    "key": "PSDH1I39",
+    "quota": 0,
+    "total_quota": 5,
+    "permission": "user",
+    "creator_qq": "2926855205",
+    "created_at": "2026-03-15T05:00:50.227Z"
+  },
+  {
+    "key": "5DSRCF7W",
+    "quota": 99,
+    "total_quota": 100,
+    "permission": "user",
+    "creator_qq": "2926855205",
+    "created_at": "2026-03-15T05:09:56.998Z"
+  }
+]

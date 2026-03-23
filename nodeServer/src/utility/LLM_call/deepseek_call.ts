@@ -78,6 +78,7 @@ export interface DeepSeekResponse {
 
 export interface EasyDeepSeekResponse {
   text: string;
+  reasoning?: string;  // 思考过程（deepseek-reasoner 模式）
   functionCalls?: Array<{
     id?: string;
     name: string;
@@ -141,6 +142,10 @@ export async function callDeepSeekLLM(
       const choice = responseData.choices[0];
       if (choice.message.content) {
         result.text = choice.message.content;
+      }
+      // 获取思考过程（deepseek-reasoner 模式）
+      if ((choice.message as any).reasoning_content) {
+        result.reasoning = (choice.message as any).reasoning_content;
       }
       if (choice.message.tool_calls) {
         for (const toolCall of choice.message.tool_calls) {

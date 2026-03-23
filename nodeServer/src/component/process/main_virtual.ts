@@ -193,6 +193,23 @@ export function removeCoreStateForFile():string{
     else
         return "SUCCESS:该文件本来就不存在";
 }
+export function getMainStatus():total_status|null{
+    return main_status;
+}
+export function reloadMainStatus():string{
+    const statusPath = path.join(__dirname, "../../../core_datas/main_virtual/main_virtual.status");
+    if(fs.existsSync(statusPath))
+    {
+        try{
+            fs.unlinkSync(statusPath);
+        }
+        catch{
+            return "ERROR:删除文件时报错";
+        }
+    }
+    main_status = null;
+    return "SUCCESS:已重载，main_status已清空";
+}
 export function addMessage(addition:Message):string{
     try
     {
@@ -1073,3 +1090,9 @@ export async function finish_event():Promise<string>{
     //弄好了
     return "SUCCESS:已经写入文件"
 }//把当前的status里的上下文压缩进event，然后删除status
+export async function memoryless_talk(input:string,role:string = "system"):Promise<string>{
+    const temp_status = JSON.parse(JSON.stringify(main_status));//备份
+    let response_text:string = await sendUserMessage(input,role);
+    main_status = temp_status;//还原
+    return response_text;
+}//把输入文本传入，然后等待主线程的回复，返回，然后回退记录，就像没问过一样，这个功能计费比较高，和一次正常的sendUserMessage一样

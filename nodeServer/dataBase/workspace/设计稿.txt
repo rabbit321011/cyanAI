@@ -1,0 +1,8 @@
+workspace应该是以条目组织的，每个条目应该是以下结构
+{
+    一个string提供上下文给模型看
+    一个string作为简述信息，可以被展开
+    一个string作为特征码(index)
+    一个string文件路径作为来源
+    一个string作为对来源的自然语言描述
+}

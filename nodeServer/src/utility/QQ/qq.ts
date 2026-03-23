@@ -1,8 +1,9 @@
 import WebSocket from 'ws';
 import { readIni } from '../file_operation/read_ini';
 import { get_busy, addQueueMessage, sendAll } from '../../component/process/main_virtual';
+import { isCommandMessage, runCommand } from '../../component/route/command';
 import { inlineData } from '../../types/process/process.type';
-import { runCommand } from '../../component/route/command';
+import { verifyQqKey, deductKeyQuota } from '../key_system/key_manager';
 import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
@@ -37,6 +38,14 @@ let requestId: number = 0;
 
 function getWsPath(): string {
     return readIni(path.join(__dirname, '../../../library_source.ini'), 'QQ_wsPath');
+}
+
+export function getNapcatConnectionStatus(): { api: boolean; event: boolean; connected: boolean } {
+    return {
+        api: apiWs !== null && apiWs.readyState === WebSocket.OPEN,
+        event: eventWs !== null && eventWs.readyState === WebSocket.OPEN,
+        connected: isConnected
+    };
 }
 
 function connectApi(): Promise<string> {
@@ -336,32 +345,66 @@ export async function QQtrackRestart(): Promise<string> {
     return await attemptReconnect();
 }
 
+/**
+ * 发送提示消息让用户绑定KEY
+ */
+async function sendKeyPrompt(qq_num: string): Promise<void> {
+    const promptText = `你需要输入KEY来使用 cyanAI\n\n使用方法：\n1. 联系管理员获取KEY\n2. 发送 "^command bindkey 你的KEY" 绑定\n\n查询KEY信息发送 "^command checkkey 你的KEY"`;
+    await QQsendMessage(qq_num, promptText);
+}
+
 export async function QQtrackTextExecute(qq_num: string, qq_name: string, parts: MessagePart[]): Promise<string> {
+    // 构建消息文本，保持原始顺序
+    let messageText = '';
+    const inlines: inlineData[] = [];
+
+    for (const part of parts) {
+        if (part.type === 'text') {
+            messageText += part.content;
+        } else if (part.type === 'image' && part.inline) {
+            messageText += part.content;
+            inlines.push(part.inline);
+        }
+    }
+
+    // 检查是否为命令消息，命令不需要KEY验证
+    const isCommand = isCommandMessage(messageText, qq_num);
+
+    // 非命令消息需要验证KEY并扣除额度
+    if (!isCommand) {
+        const verifyResult = verifyQqKey(qq_num);
+        if (!verifyResult.valid) {
+            // KEY验证失败，发送提示并拒绝处理
+            await sendKeyPrompt(qq_num);
+            return `SUCCESS:KEY验证失败，已发送提示 - ${verifyResult.error}`;
+        }
+
+        // 扣除KEY额度
+        if (verifyResult.key) {
+            const deductResult = deductKeyQuota(verifyResult.key.key);
+            if (!deductResult.success) {
+                await QQsendMessage(qq_num, `KEY额度扣除失败: ${deductResult.error}`);
+                return `SUCCESS:KEY额度扣除失败 - ${deductResult.error}`;
+            }
+        }
+    }
+
     const busy = get_busy();
-    
+
     if (busy) {
         wait_queue.push({ qq_num, qq_name, parts });
         return "SUCCESS:消息已加入等待队列";
     } else {
-        // 构建消息文本，保持原始顺序
-        let messageText = '';
-        const inlines: inlineData[] = [];
-        
-        for (const part of parts) {
-            if (part.type === 'text') {
-                messageText += part.content;
-            } else if (part.type === 'image' && part.inline) {
-                messageText += part.content;
-                inlines.push(part.inline);
-            }
-        }
-        
         // 检查原始文本是否包含命令
-        if (messageText.trim().startsWith("^command ")) {
-            // 直接对原始文本进行命令处理
-            const commandResult = runCommand(messageText);
+        if (isCommand) {
+            // 命令消息，传递QQ号以便执行需要QQ号的操作
+            const commandResult = runCommand(messageText, qq_num, inlines, qq_name);
             if (commandResult.stop) {
-                // 如果 stop 为 true，停止执行，当这条消息没发
+                // 如果 stop 为 true，根据返回内容决定是否发送回复
+                const responseText = commandResult.datas;
+                if (responseText && !responseText.includes('事件已结束')) {
+                    await QQsendMessage(qq_num, responseText);
+                }
                 return "SUCCESS:消息被命令拦截";
             }
             // 使用处理后的数据继续处理
@@ -393,21 +436,21 @@ export async function QQtrackTextExecute(qq_num: string, qq_name: string, parts:
 
 export async function QQidleSignal(): Promise<string> {
     const busy = get_busy();
-    
+
     if (busy) {
         console.log('QQidleSignal: busy状态为true，这是错误的');
         return "ERROR:错误的busy状态";
     }
-    
+
     if (wait_queue.length === 0) {
         return "SUCCESS:等待队列为空";
     }
-    
+
     for (const item of wait_queue) {
         // 构建消息文本，保持原始顺序
         let messageText = '';
         const inlines: inlineData[] = [];
-        
+
         for (const part of item.parts) {
             if (part.type === 'text') {
                 messageText += part.content;
@@ -416,13 +459,31 @@ export async function QQidleSignal(): Promise<string> {
                 inlines.push(part.inline);
             }
         }
-        
+
+        // 检查是否为命令消息
+        const isCommand = isCommandMessage(messageText, item.qq_num);
+
+        // 非命令消息需要验证KEY
+        if (!isCommand) {
+            const verifyResult = verifyQqKey(item.qq_num);
+            if (!verifyResult.valid) {
+                // KEY验证失败，发送提示并跳过
+                await sendKeyPrompt(item.qq_num);
+                console.log(`[KEY验证] QQ ${item.qq_num} 验证失败: ${verifyResult.error}`);
+                continue;
+            }
+        }
+
         // 检查原始文本是否包含命令
-        if (messageText.trim().startsWith("^command ")) {
-            // 直接对原始文本进行命令处理
-            const commandResult = runCommand(messageText);
+        if (isCommand) {
+            // 命令消息，传递QQ号
+            const commandResult = runCommand(messageText, item.qq_num, inlines, item.qq_name);
             if (commandResult.stop) {
-                // 如果 stop 为 true，跳过这条消息
+                // 如果 stop 为 true，根据返回内容决定是否发送回复
+                const responseText = commandResult.datas;
+                if (responseText && !responseText.includes('事件已结束')) {
+                    await QQsendMessage(item.qq_num, responseText);
+                }
                 continue;
             }
             // 使用处理后的数据继续处理
@@ -454,4 +515,49 @@ export async function QQidleSignal(): Promise<string> {
     });
     
     return "SUCCESS:等待队列已处理";
+}
+
+export interface StagedMessage {
+    text: string;
+    inlines: inlineData[];
+}
+
+export async function sendStagedMessages(qqNum: string, qqName: string, messages: StagedMessage[]): Promise<string> {
+    if (messages.length === 0) {
+        return "SUCCESS:暂存区为空";
+    }
+
+    const busy = get_busy();
+
+    if (busy) {
+        for (const msg of messages) {
+            const parts: MessagePart[] = [];
+            if (msg.text) {
+                parts.push({ type: 'text', content: msg.text });
+            }
+            for (const inline of msg.inlines) {
+                parts.push({ type: 'image', content: '[图片]', inline });
+            }
+            wait_queue.push({ qq_num: qqNum, qq_name: qqName, parts });
+        }
+        return "SUCCESS:消息已加入等待队列";
+    } else {
+        for (const msg of messages) {
+            let message: string;
+            if (msg.text && msg.inlines.length > 0) {
+                message = `QQ联系人:${qqName}(${qqNum})发来了消息:${msg.text}`;
+            } else if (msg.text) {
+                message = `QQ联系人:${qqName}(${qqNum})发来了消息:${msg.text}`;
+            } else if (msg.inlines.length > 0) {
+                message = `QQ联系人:${qqName}(${qqNum})发来了图片`;
+            } else {
+                continue;
+            }
+            addQueueMessage(message, 'system', [], msg.inlines);
+        }
+        sendAll().catch((error: any) => {
+            console.error('sendStagedMessages发送消息失败:', error);
+        });
+        return "SUCCESS:暂存消息已发送";
+    }
 }

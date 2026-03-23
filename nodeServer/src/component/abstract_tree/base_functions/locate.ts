@@ -1,50 +1,143 @@
-/*
-本文件是用来操作和筛选内存中的抽象树的
-locate.ts暴露函数id_locate用来通过文本id定位
-locate.ts暴露函数auto_locate,rag_locate,full_assessment_locate,choice_locate
-    这些函数的设计初衷都包含一个检索target对象，target对象包含：
-        {
-            target_name:string,//一个描述对象的名字
-            target_description:string//一个描述对象的大致内容，大概是一个70字以内的字符串
+/**
+ * locate.ts - 抽象树节点定位模块
+ */
+
+import { abstruct_node, extra_anaphora_node } from "../data_structure/abstruct_tree_types";
+import { LLM_task_single_deepseek, LLM_task_single_deepseek_full } from "../../../utility/LLM_call/LLM_task/LLM_task";
+import * as fs from 'fs';
+import * as path from 'path';
+export function id_locate(node_id: string, source_nodes: abstruct_node[]): abstruct_node {
+    for (const node of source_nodes) {
+        if (node.id === node_id) {
+            return node;
+        }
+    }
+    
+    console.error(`未找到节点: ${node_id}，返回空根节点`);
+    return {
+        id: "root",
+        parent_node_id: "root",
+        parent_theory_id: ["root"],
+        subnodes_id: []
+    };
+}
+const choice_prompt = fs.readFileSync(path.join(__dirname, 'choice_locate_prompt.txt'), 'utf-8');
+
+// DEBUG 开关：开启后返回思考过程
+const DEBUG = true;
+
+/**
+ * 根据 choice_locate_prompt.txt 的规则定位概念在抽象树中的位置
+ * @param target_node 待定位的概念
+ * @param source_nodes source_nodes[0] 是父节点，其余是子节点
+ * @returns extra_anaphora_node 描述待定位概念与父节点/子节点的关系
+ *
+ * 关系说明：
+ * - self: 待定位概念等于父节点（情况a），需要继续深入查找子节点
+ * - multiple_candidate: 待定位概念是某些子节点的抽象（情况b）
+ * - undefine_self: 不属于任何现有子节点（情况d）或需要定义新的子节点
+ * - bad_struct: 概念结构不清晰，部分属于某子节点部分不属于（情况e）
+ */
+export async function choice_locate(target_node: string, source_nodes: abstruct_node[]): Promise<extra_anaphora_node> {
+    // source_nodes[0] 是父节点，其余是子节点
+    // source_nodes 为空时无法定位，返回空字符串标识错误
+    if (source_nodes.length === 0) {
+        console.error('source_nodes 为空，无法定位');
+        return { id: 'root', relation: 'undefine_self' };
+    }
+
+    const parentNode = source_nodes[0];
+    const childNodes = source_nodes.slice(1);
+
+    // 构造任务数据
+    const task_data = `
+父节点概念: ${parentNode.id}
+子节点概念列表: ${childNodes.map(n => n.id).join(', ')}
+待定位概念: ${target_node}
+    `.trim();
+
+    try {
+        // 调用 LLM 进行定位分析
+        let result: string;
+        let reasoning: string | undefined;
+
+        if (DEBUG) {
+            const fullResult = await LLM_task_single_deepseek_full(
+                choice_prompt,
+                task_data,
+                0,        // temperature
+                0.01,     // top_p
+                'deepseek-reasoner'  // 使用思考模型
+            );
+            result = fullResult.text;
+            reasoning = fullResult.reasoning;
+
+            console.log(`[choice_locate] 思考过程:\n${reasoning || '无'}\n`);
+        } else {
+            result = await LLM_task_single_deepseek(
+                choice_prompt,
+                task_data,
+                0,
+                0.01,
+                'deepseek-reasoner'
+            );
         }
 
-    rag_locate有参数output_count = 1,filter_count = 40 ,rag_min_score = 0.1 ,use_reranker = true ,reranker_count = 20,reranker_min_score = 0.5
-    首先，会将整个树拿出来，先通过rag筛选前filter_count的对象，再去掉rag得分小于rag_min_score的对象，如果use_reranker===true
-    则会将筛选后的对象进行reranker,先拿出得分在前reranker_count的对象，再把这些对象中reranker得分小于reranker_min_score的去掉
-    得到的对象的原始文本加上索引(index)后，调用deepseek来筛选出前output_count的对象，要求如果两个对象都能描述，优先输出比较具体的节点
-    如果一个对象的父对象可以更好的描述，且子节点不是比较适合，则优先输出父对象
-    如果给deepseek的对象间有父子关系，则不给deepseek父节点
-    子节点必然附带父节点的所有信息，deepseek可以选择输出父节点
+        console.log(`[choice_locate] LLM 返回: ${result}`);
 
-    full_assessment_locate有参数output_count = 1,min_R = 0
-    其的运作方式是，先筛选出综合R值大于等于min_R的节点
-    从子节点开始，每个节点评估自己适不适合提交，如果适合，那么把自己提交到父节点
-    节点作为父节点也需要把全部的子节点的结果和自身也提交给模型判断
-    父节点的min_R一定大于子节点，因为实际R = 父节点的实际R * 自己的R占比
-    提交的数量正是output_count,最后到根节点后，唯一的根节点的提交的output_count个节点就是最终的值
+        const trimmedResult = result.trim();
 
-    choice_locate有参数output_count = 1 (这个参数必须为1), subnode_count = 128
-    其会从根节点开始挨个选择，其会通过subnode_count决定每次看见的节点数
-*/
-import { abstruct_node } from "../data_structure/abstruct_tree_types";
-export function id_locate(node_id:string,source_nodes:abstruct_node[])//读取的是dataBase\abstruct_tree\root下的文件，文件格式是JSON
-{
-    //遍历
-    let output_node:abstruct_node|null = null;
-    source_nodes.map((curr)=>{
-        if(curr.id === node_id)
-        {
-            if(output_node === null)
-                output_node = curr
-            else
-                console.error("在检索:"+node_id+" 时,检索到了多个对象,以第一个为准。")
+        // 解析结果，映射到 extra_anaphora_node
+        if (trimmedResult === '-1') {
+            // a. 待定位概念是父节点本身，需要继续深入查找子节点
+            return {
+                id: parentNode.id,
+                relation: 'self'
+            };
+        } else if (trimmedResult === '-2') {
+            // d. 待定位概念比父节点具体，但不属于任何子节点
+            return {
+                id: parentNode.id,
+                relation: 'undefine_self'
+            };
+        } else if (trimmedResult === '-5') {
+            // e. 待定位概念被某个子节点部分包含，结构不清晰
+            return {
+                id: parentNode.id,
+                relation: 'bad_struct'
+            };
+        } else if (trimmedResult.startsWith('{') && trimmedResult.endsWith('}')) {
+            // b. 待定位概念是某些子节点的抽象，格式: ${节点1全名，节点2全名}
+            const innerContent = trimmedResult.slice(1, -1);
+            // 支持全角逗号和半角逗号
+            const matchedNodeNames = innerContent.split(/[，,]/).map(s => s.trim()).filter(s => s.length > 0);
+            return {
+                id: matchedNodeNames,
+                relation: 'multiple_candidate'
+            };
+        } else {
+            // c. 待定位概念匹配到某个子节点本身，或者比某子节点更具体
+            // 需要继续深入查找，返回匹配到的子节点ID让调用方继续递归
+            const matchedChild = childNodes.find(n => n.id === trimmedResult);
+            if (matchedChild) {
+                // 匹配到子节点，需要继续深入查找该子节点的子节点
+                return {
+                    id: matchedChild.id,
+                    relation: 'self'
+                };
+            }
+            // 如果没找到匹配的子节点，说明比现有所有子节点都更具体，需要定义新子节点
+            return {
+                id: parentNode.id,
+                relation: 'undefine_self'
+            };
         }
-    })
-    if(output_node === null)
-        console.error("没有检索到对象；" + node_id + " ,所以输出了null")
-    return output_node
-}
-export interface target_abstructTreeNode{
-    target_name:string,
-    target_description:string
-}
+    } catch (error) {
+        console.error('[choice_locate] 调用 LLM 失败:', error);
+        return {
+            id: parentNode.id,
+            relation: 'undefine_self'
+        };
+    }
+}//选择式的定位概念节点
+//export async function 

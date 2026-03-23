@@ -1,7 +1,7 @@
 {
-    "id":"root",
-    "parent_node_id":"root",
-    "parent_theory_id":[
-        "root"
-    ]
+  "id": "root",
+  "parent_node_id": "",
+  "parent_theory_id": [],
+  "subnodes_id": [
+  ]
 }
