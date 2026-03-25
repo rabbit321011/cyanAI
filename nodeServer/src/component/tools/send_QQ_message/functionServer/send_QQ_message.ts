@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { QQsendMessage, QQsendImg, QQsendAudio } from '../../../../utility/QQ/qq';
+import { QQsendMessage, QQsendImg, QQsendAudio, QQsendFile } from '../../../../utility/QQ/qq';
 
 const SUPPORTED_IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'];
 const SUPPORTED_AUDIO_EXTENSIONS = ['.wav', '.mp3', '.amr', '.silk', '.ogg', '.m4a'];
@@ -41,8 +41,8 @@ export const execute = async (params: any, work_file: string) => {
                 const sendResult = await QQsendAudio(aim_qq_num, filePath);
                 results.push(`语音段${i + 1}: ${filePath} - ${sendResult}`);
             } else {
-                const sendResult = await QQsendMessage(aim_qq_num, `%[${filePath}]`);
-                results.push(`文本段${i + 1}: 不支持的文件格式${ext}，发送原始文本 - ${sendResult}`);
+                const sendResult = await QQsendFile(aim_qq_num, filePath);
+                results.push(`文件段${i + 1}: ${filePath} - ${sendResult}`);
             }
         } else {
             const sendResult = await QQsendMessage(aim_qq_num, segment);

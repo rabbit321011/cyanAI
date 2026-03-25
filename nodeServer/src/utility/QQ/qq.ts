@@ -314,6 +314,56 @@ export async function QQsendAudio(qq_num: string, file_path: string): Promise<st
     }
 }
 
+export async function QQsendFileByUrl(qq_num: string, fileUrl: string): Promise<string> {
+    if (!apiWs || apiWs.readyState !== WebSocket.OPEN) {
+        return "ERROR:WebSocket未连接";
+    }
+
+    try {
+        const response = await sendApiRequest('send_private_msg', {
+            user_id: parseInt(qq_num),
+            message: [
+                { type: 'file', data: { file: fileUrl } }
+            ]
+        });
+
+        if (response.status === 'ok') {
+            return "SUCCESS:文件发送成功";
+        } else {
+            return `ERROR:文件发送失败,retcode=${response.retcode}`;
+        }
+    } catch (error: any) {
+        return `ERROR:发送文件时发生错误:${error.message}`;
+    }
+}
+
+export async function QQsendFile(qq_num: string, file_path: string): Promise<string> {
+    if (!apiWs || apiWs.readyState !== WebSocket.OPEN) {
+        return "ERROR:WebSocket未连接";
+    }
+
+    if (!fs.existsSync(file_path)) {
+        return `ERROR:文件不存在:${file_path}`;
+    }
+
+    try {
+        const response = await sendApiRequest('send_private_msg', {
+            user_id: parseInt(qq_num),
+            message: [
+                { type: 'file', data: { file: `file:///${file_path.replace(/\\/g, '/')}` } }
+            ]
+        });
+
+        if (response.status === 'ok') {
+            return "SUCCESS:文件发送成功";
+        } else {
+            return `ERROR:文件发送失败,retcode=${response.retcode}`;
+        }
+    } catch (error: any) {
+        return `ERROR:发送文件时发生错误:${error.message}`;
+    }
+}
+
 export async function QQtrackRestart(): Promise<string> {
     reconnectAttempts = 0;
     
@@ -403,7 +453,8 @@ export async function QQtrackTextExecute(qq_num: string, qq_name: string, parts:
                 // 如果 stop 为 true，根据返回内容决定是否发送回复
                 const responseText = commandResult.datas;
                 if (responseText && !responseText.includes('事件已结束')) {
-                    await QQsendMessage(qq_num, responseText);
+                    const sendResult = await QQsendMessage(qq_num, responseText);
+                    console.log(`[命令回复] ${sendResult}`);
                 }
                 return "SUCCESS:消息被命令拦截";
             }
@@ -482,7 +533,8 @@ export async function QQidleSignal(): Promise<string> {
                 // 如果 stop 为 true，根据返回内容决定是否发送回复
                 const responseText = commandResult.datas;
                 if (responseText && !responseText.includes('事件已结束')) {
-                    await QQsendMessage(item.qq_num, responseText);
+                    const sendResult = await QQsendMessage(item.qq_num, responseText);
+                    console.log(`[命令回复] ${sendResult}`);
                 }
                 continue;
             }

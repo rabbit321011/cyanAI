@@ -17,6 +17,7 @@ export interface workspace_ent{
     index:string,//以ws开头，然后是序号
     current:string//这里写着%[文件的完整路径]或者直接是文件内容
 }
+/** 工作区条目，表示AI可以访问的文件或内容 */
 export interface object_ent_current{
     state:MemoryState,//这是记忆相关的
     /*
@@ -30,30 +31,36 @@ export interface object_ent_current{
     last_time:number,//这里记录的是上次提起的轮次,以chat为单位
     text:string//记录实际的内容       
 }
+/** 对象条目，包含对象名称及其当前状态列表 */
 export interface object_ent
 {
     name:string,
     current:object_ent_current[]
 }
+/** 关系条目的当前状态，包含记忆状态、时间和文本内容 */
 export interface relative_ent_current{
     state:MemoryState,
     last_time:number,
     text:string//这个和上面完全一样
 }
+/** 关系条目，表示两个对象之间的关系 */
 export interface relative_ent{
     start:string,//表示关系的发起方
     target:string,//表示接受方
     current:relative_ent_current[]         
 }
+/** 拉取的信息条目，表示从外部获取的文件路径 */
 export interface pulled_ent{
     index:string,//以pi开头，然后是数字
     current:string//完整的文件路径，不加%[]
 }
+/** 步骤进度条目，表示AI计划中的步骤 */
 export interface step_ent{
     index:string,//以sp开头，然后是数字
     status:string,//可以是pending,processing,completed其中之一
     current:string//计划的内容
 }
+/** 整体状态，包含系统配置和对话上下文 */
 export interface total_status{
     system:{
         main_prompt:string,//静态的
@@ -69,10 +76,12 @@ export interface total_status{
     }
     context:Message[]//这个就直接是一个Message数组了
 }
+/** 内容单元，用于构建LLM请求的消息结构 */
 export interface content_unit{
     role:string,
     parts:part_unit[]
 }
+/** 消息部件单元，包含文本、图片、文件、函数调用等多种内容类型 */
 export interface part_unit {
   text?: string;
   inlineData?: { 
@@ -176,7 +185,7 @@ export function saveCoreStateForFile():string{
         return "SUCCESS:成功写入"
     else
         return "ERROR:写入失败"
-}
+}//保存状态到文件
 export function removeCoreStateForFile():string{
     const statusPath = path.join(__dirname, "../../../core_datas/main_virtual/main_virtual.status");
     if(fs.existsSync(statusPath))
@@ -192,8 +201,11 @@ export function removeCoreStateForFile():string{
     }
     else
         return "SUCCESS:该文件本来就不存在";
-}
+}//删除文件
 export function getMainStatus():total_status|null{
+    if (main_status === null) {
+        getCoreStateForFile();
+    }
     return main_status;
 }
 export function reloadMainStatus():string{
@@ -209,7 +221,7 @@ export function reloadMainStatus():string{
     }
     main_status = null;
     return "SUCCESS:已重载，main_status已清空";
-}
+}//清空main_status变量和文件
 export function addMessage(addition:Message):string{
     try
     {
@@ -220,7 +232,7 @@ export function addMessage(addition:Message):string{
     {
         return "ERROR";
     }
-}//如果main_status没有被初始化，那么函数将会没有效果
+}//如果main_status没有被初始化，那么函数将会没有效果。新增对话条目
 function readStatusFromFile(filePath: string): total_status | null {
   try {
     const fileContent: string = fs.readFileSync(filePath, 'utf-8');
@@ -231,7 +243,7 @@ function readStatusFromFile(filePath: string): total_status | null {
     // 根据需要处理错误，比如文件不存在、JSON格式错误等
     return null;
   }
-}
+}//从文件取得status
 function readFileSyncAsString(filePath: string): string {
     const fileContent: string = fs.readFileSync(filePath, 'utf-8');
     return fileContent;
@@ -327,7 +339,7 @@ async function summarizeImage(imageData: inlineData): Promise<string> {
         console.error('图片总结失败:', error);
         return '[图片内容无法识别]';
     }
-}
+}//总结图片内容
 
 async function processImageSummaries(): Promise<void> {
     if (!main_status) return;
@@ -398,7 +410,7 @@ async function processImageSummaries(): Promise<void> {
             console.log("图片总结结果已保存到文件");
         }
     }
-}
+}//总结该总结的图片到文本
 
 export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:number = 2000):Promise<string>
 {
@@ -610,20 +622,48 @@ export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:num
             // 处理 function calls 的循环，直到模型返回文本
             let functionCallLoopCount = 0;
             const maxFunctionCallLoops = 10; // 防止无限循环
+            let thoughtSignatureRetryCount = 0;
+            const maxThoughtSignatureRetries = 3;
             
             while (response.functionCalls && response.functionCalls.length > 0 && functionCallLoopCount < maxFunctionCallLoops) {
                 functionCallLoopCount++;
                 console.log(`🔄 处理第 ${functionCallLoopCount} 轮 function calls`);
                 
-                // 为每个函数调用生成响应
-                for (const functionCall of response.functionCalls) {
-                    
-                    // 检查 thoughtSignature 是否存在
-                    if (!functionCall.thoughtSignature) {
-                        const errorMsg = `错误：函数调用 ${functionCall.name} 缺少 thoughtSignature 字段`;
+                // 检查所有 functionCall 是否都有 thoughtSignature
+                const missingSignatureCall = response.functionCalls.find(fc => !fc.thoughtSignature);
+                if (missingSignatureCall) {
+                    thoughtSignatureRetryCount++;
+                    if (thoughtSignatureRetryCount > maxThoughtSignatureRetries) {
+                        const errorMsg = `错误：函数调用 ${missingSignatureCall.name} 缺少 thoughtSignature 字段，已重试 ${maxThoughtSignatureRetries} 次`;
                         console.log('❌', errorMsg);
                         throw new Error(errorMsg);
                     }
+                    console.log(`⚠️ thoughtSignature 缺失，重新请求... (第 ${thoughtSignatureRetryCount} 次重试)`);
+                    
+                    // 重新请求 LLM
+                    if (llmSource === 'deepseek') {
+                        response = await callDeepSeekTemp(
+                            request,
+                            readIni(path.join(__dirname, '../../../library_source.ini'), 'deepseek_api_sky'),
+                            "deepseek-chat",
+                            "https://api.deepseek.com"
+                        );
+                    } else {
+                        response = await callGoogleLLM(
+                            request,
+                            currentKey?.key || readIni(path.join(__dirname, '../../../library_source.ini'), 'google_api_key'),
+                            "gemini-3-pro-preview",
+                            currentKey?.baseUrl || readIni(path.join(__dirname, '../../../library_source.ini'), 'google_base_url')
+                        );
+                    }
+                    continue;
+                }
+                
+                // 重置计数器（成功获取到 thoughtSignature）
+                thoughtSignatureRetryCount = 0;
+                
+                // 为每个函数调用生成响应
+                for (const functionCall of response.functionCalls) {
 
                     // 记录函数调用（由 model 发出）
                     const functionCallMessage: Message = {
@@ -955,7 +995,7 @@ export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:num
         console.error('QQidleSignal调用失败:', error);
     });
     return "ERROR:当前状态不合法"
-}//这个函数发送当前的的上下文状态给模型,并且模型的回复会添加在main_status的上下文里
+}//这个函数发送当前的的上下文状态给模型,并且模型的回复会添加在main_status的上下文里，返回的只是执行状态
 
 export function verify_chatable():boolean
 {
@@ -968,7 +1008,7 @@ if(main_status && (main_status.context.length !== 0 ))
     return last_role_type === "user";
 }
 return false;
-}//判断是否可以发送消息
+}//判断是否可以发送消息（判断最后一条是不是user，其实已经过时了
 
 export function context_back():string
 {
@@ -1050,14 +1090,14 @@ export function addQueueMessage(send_curr:string,user_name:string,files:string[]
         return "SUCCESS:消息已加入队列"
     else
         return "ERROR:添加消息到队列失败"
-}//以用户的身份添加消息到队列，不触发发送
+}//以用户的身份添加消息到队列
 
 export function exit_status():boolean{
     if(main_status)
         return true;
     else
         return false;
-}
+}//检查main_status是否在变量里存在
 export async function finish_event():Promise<string>{
     if(!main_status)
         if(isError(getCoreStateForFile()))
@@ -1096,3 +1136,85 @@ export async function memoryless_talk(input:string,role:string = "system"):Promi
     main_status = temp_status;//还原
     return response_text;
 }//把输入文本传入，然后等待主线程的回复，返回，然后回退记录，就像没问过一样，这个功能计费比较高，和一次正常的sendUserMessage一样
+//---------------------------这里是栈操作相关的函数-----------------------------------
+class status_stack
+{
+    public data:total_status[] = [];//data其实表示main_status之上的玩意，所以其默认为空
+    public push():void{
+        this.data.push(JSON.parse(JSON.stringify(main_status)));
+    }//基于当前状态压栈
+    public break():boolean{
+        if(this.data.length == 0)
+            return false;
+        main_status = JSON.parse(JSON.stringify(this.data[this.data.length - 1]))
+        this.data.pop();
+        return true
+    }//跳出，成功则返回true
+    public clear():void{
+        this.data=[]
+    }
+}//可以push,break,clear啥的
+let main_status_stack:status_stack = new status_stack();//这玩意必须初始化
+//---------------------------这里是浮空栈相关函数----------------------------------
+class temp_stack{
+    public status:total_status;
+    public data:total_status[] = [];//data其实表示this.status之上的玩意，所以其默认为空
+    
+    constructor(initialStatus: total_status) {
+        this.status = initialStatus;
+    }
+    
+    public push():void{
+        this.data.push(JSON.parse(JSON.stringify(this.status)));
+    }//基于当前状态压栈
+    public break():boolean{
+        if(this.data.length == 0)
+            return false;
+        this.status = JSON.parse(JSON.stringify(this.data[this.data.length - 1]))
+        this.data.pop();
+        return true
+    }//跳出，成功则返回true
+    public clear():void{
+        this.data=[]
+    }
+    public set(input:total_status):void{
+        this.status = input;
+    }
+}//额外拥有一个主状态的栈,多个set方法
+//temp_stack被利用是依靠劫持main_status来实现的，所以其不能多线程并行，之后有机会重构
+//也就是说，main_status_stack先进行压栈，在新压的栈里面进行temp_stack的运行，然后temp_stack在劫持动作结束以后，把main_status写入自己的当前栈点
+let now_takeover:temp_stack|null = null;//当前接管的temp_stack
+
+//开始接管，将main_status替换为temp_stack的status
+export function temp_stack_takeover_start(input:temp_stack):void{
+    now_takeover = input;
+    main_status_stack.push();
+    main_status = input.status;
+}
+
+//结束接管，将main_status写回temp_stack，并恢复main_status_stack
+export function temp_stack_takeover_end():void{
+    if(now_takeover === null) return;
+    now_takeover.status = main_status;
+    main_status_stack.break();
+    now_takeover = null;
+}
+
+//接管期间的push操作：先结束接管，执行temp.push()，再重新开始接管
+export function takeover_push():void{
+    if(now_takeover === null) return;
+    const temp = now_takeover;
+    temp_stack_takeover_end();
+    temp.push();
+    temp_stack_takeover_start(temp);
+}
+
+//接管期间的break操作：先结束接管，执行temp.break()，再重新开始接管
+export function takeover_break():boolean{
+    if(now_takeover === null) return false;
+    const temp = now_takeover;
+    temp_stack_takeover_end();
+    const result = temp.break();
+    temp_stack_takeover_start(temp);
+    return result;
+}

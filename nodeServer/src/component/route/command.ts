@@ -15,9 +15,11 @@
 import { routeOutput, Message, inlineData } from "../../types/process/process.type";
 import { finish_event, get_busy, addQueueMessage, sendAll, getMainStatus, reloadMainStatus } from "../process/main_virtual";
 import { createKey, checkKey, bindKeyToQq, unbindKeyFromQq, getAdminKey, verifyQqKey, addToBlacklist, hasPermission } from "../../utility/key_system/key_manager";
-import { QQsendMessage, sendStagedMessages, StagedMessage, getNapcatConnectionStatus } from "../../utility/QQ/qq";
+import { QQsendMessage, QQsendImg, sendStagedMessages, StagedMessage, QQsendFile } from "../../utility/QQ/qq";
+import { checkPyServer, checkNapcat } from "../../utility/connect/connect";
 import { readIni } from "../../utility/file_operation/read_ini";
 import path from "path";
+import fs from "fs";
 import { exec } from "child_process";
 import { promisify } from "util";
 
@@ -199,7 +201,33 @@ function handleHelp(): string {
 ^command help
   显示此帮助信息
 
-【KEY管理命令】
+【消息队列命令】
+^command queuestart
+  开启暂存模式，后续消息将被暂存不发送
+
+^command queuesend
+  关闭暂存模式，发送暂存的所有消息
+
+【测试命令】
+^command test connect pyServer
+  测试 Python 服务器连接状态
+
+^command test connect napcat
+  测试 Napcat (QQ) 连接状态
+
+^command test ping <url>
+  Ping 指定 URL
+
+【管理员命令】
+^command view status
+  查看 main_status 状态（需要op权限）
+
+^command reload
+  删除 main_status 文件并重置状态（需要op权限）
+
+^command bash <命令>
+  执行 bash 命令（需要op权限）
+
 ^command creatkey <额度> <权限组>
   创建新KEY（需要op权限）
   额度: 正整数或"inf"（无限）
@@ -219,7 +247,6 @@ function handleHelp(): string {
 ^command unbindkey
   解除当前QQ号的KEY绑定
 
-【管理员命令】
 ^command addblacklist <QQ号> [原因]
   将QQ号加入黑名单（需要op权限）
   示例: ^command addblacklist 123456789 违规发言
@@ -273,28 +300,19 @@ function handleAddBlacklist(args: string[], qqNum: string): string {
 const execAsync = promisify(exec);
 
 function handleTestConnectPyServer(qqNum: string): string {
-    const pyServerUrl = readIni(path.join(__dirname, '../../../library_source.ini'), 'local_api_url');
-    fetch(`${pyServerUrl}/ping`, {
-        method: 'GET',
-        signal: AbortSignal.timeout(5000)
-    })
-        .then(async (response) => {
-            if (response.ok) {
-                const data = await response.json();
-                QQsendMessage(qqNum, `SUCCESS:pyServer连接正常\n地址: ${pyServerUrl}\n响应: ${JSON.stringify(data)}`).catch(console.error);
-            } else {
-                QQsendMessage(qqNum, `ERROR:pyServer响应异常\n状态码: ${response.status}`).catch(console.error);
-            }
-        })
-        .catch((error) => {
-            QQsendMessage(qqNum, `ERROR:pyServer连接失败\n地址: ${pyServerUrl}\n错误: ${error.message}`).catch(console.error);
-        });
-    return `正在测试pyServer连接...\n地址: ${pyServerUrl}`;
+    checkPyServer().then((result) => {
+        if (result.success) {
+            QQsendMessage(qqNum, `SUCCESS:${result.message}\n地址: ${result.details.url}\n响应: ${JSON.stringify(result.details.response)}`).catch(console.error);
+        } else {
+            QQsendMessage(qqNum, `ERROR:${result.message}`).catch(console.error);
+        }
+    });
+    return `正在测试pyServer连接...`;
 }
 
 function handleTestConnectNapcat(): string {
-    const status = getNapcatConnectionStatus();
-    return `Napcat连接状态:\nAPI WebSocket: ${status.api ? '已连接' : '未连接'}\nEvent WebSocket: ${status.event ? '已连接' : '未连接'}\n总体状态: ${status.connected ? '已连接' : '未连接'}`;
+    const result = checkNapcat();
+    return `Napcat连接状态:\nAPI WebSocket: ${result.details.api}\nEvent WebSocket: ${result.details.event}\n总体状态: ${result.message}`;
 }
 
 function handleTestPingUrl(url: string, qqNum: string): string {
@@ -595,9 +613,39 @@ export function runCommand(input: string, qqNum?: string, inlines: inlineData[] 
                     };
                 }
                 const status = getMainStatus();
+                const statusJson = status ? JSON.stringify(status, null, 2) : 'ERROR:main_status为空';
+                const maxLength = 600;
+                const maxSegments = 10;
+                const totalLength = statusJson.length;
+                const segments = Math.ceil(totalLength / maxLength);
+                const actualSegments = Math.min(segments, maxSegments);
+
+                if (totalLength > maxLength * maxSegments) {
+                    const statusPath = path.join(__dirname, "../../../core_datas/main_virtual/main_virtual.status");
+                    if (fs.existsSync(statusPath)) {
+                        QQsendFile(qqNum!, statusPath).catch(console.error);
+                        return {
+                            stop: true,
+                            datas: `状态数据过长(${totalLength}字符)，已发送文件`
+                        };
+                    } else {
+                        return {
+                            stop: true,
+                            datas: `状态数据过长(${totalLength}字符)，且状态文件不存在`
+                        };
+                    }
+                }
+
+                for (let i = 0; i < actualSegments; i++) {
+                    const start = i * maxLength;
+                    const end = Math.min(start + maxLength, totalLength);
+                    const segment = statusJson.substring(start, end);
+                    const header = actualSegments > 1 ? `[${i + 1}/${actualSegments}] ` : '';
+                    QQsendMessage(qqNum!, header + segment).catch(console.error);
+                }
                 return {
                     stop: true,
-                    datas: status ? JSON.stringify(status, null, 2) : 'ERROR:main_status为空'
+                    datas: `状态已发送，共${actualSegments}段`
                 };
             }
             return {
