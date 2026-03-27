@@ -122,4 +122,16 @@ string数组，表示可以切换到的策略组模式
 
 Tw的原取值范围为:1~0
 
+###### 20.subject_file
+
+为一个文件夹，文件夹内必须包含一个main.ts
+
+该main.ts必须包含一个main(context:any = this)函数
+
+main函数会自动执行完相关操作，啥也不返回，包括sendAll,工具调用等等
+
+但是执行main函数的前提是目前的东西已经加入Queue,是就等着sendAll的状态
+
+其实这个函数就相当于目前的sendAll加上发送QQ消息啥的，可能要加上管道操作
+
 ###### 
