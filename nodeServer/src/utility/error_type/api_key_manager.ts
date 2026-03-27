@@ -195,6 +195,16 @@ class ApiKeyManager {
         this.saveState();
     }
 
+    resetToFirstKey(): void {
+        if (this.keys.length > 0) {
+            this.state.currentPriority = this.keys[0].priority;
+            this.state.failedPriorities = [];
+            this.state.lastSwitchTime = '00000101_000000';
+            this.saveState();
+            console.log(`[ApiKeyManager] 已重置到第一个 API key (优先级 ${this.keys[0].priority})`);
+        }
+    }
+
     getAllKeys(): ApiKeyConfig[] {
         return [...this.keys];
     }

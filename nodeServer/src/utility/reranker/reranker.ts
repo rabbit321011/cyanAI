@@ -15,7 +15,7 @@ import { readIni } from '../file_operation/read_ini';
 import * as path from 'path';
 
 /** library_source.ini 文件路径 */
-const INI_FILE_PATH = path.join(__dirname, '../../library_source.ini');
+const INI_FILE_PATH = path.join(__dirname, '../../../library_source.ini');
 
 /** Reranker API 响应类型定义 */
 interface RerankerResponse {
@@ -74,6 +74,29 @@ export async function reranker(query: string, targets: string[]): Promise<number
 
     if (data.status !== 'success') {
         throw new Error(`Reranker failed: ${data.message || 'Unknown error'}`);
+    }
+
+    return data.scores;
+}
+
+export async function fast_reranker(query: string, targets: string[]): Promise<number[]> {
+    const baseUrl = getLocalApiUrl();
+
+    const response = await fetch(`${baseUrl}/api/bgererank/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            query,
+            targets
+        })
+    });
+
+    const data = await response.json() as RerankerResponse;
+
+    if (data.status !== 'success') {
+        throw new Error(`Fast Reranker failed: ${data.message || 'Unknown error'}`);
     }
 
     return data.scores;

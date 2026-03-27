@@ -253,14 +253,28 @@ export async function callGoogleLLM(
         continue; // 使用新 key 重试
       }
       
-      if (classifiedError.action === 'retry' && attempts < maxAttempts) {
-        console.log(`🔄 可重试错误，${attempts}/${maxAttempts} 次尝试`);
-        const delay = Math.pow(2, attempts) * 1000; // 指数退避
-        await new Promise(resolve => setTimeout(resolve, delay));
-        continue; // 重试当前 key
+      if (classifiedError.action === 'retry') {
+        if (attempts < maxAttempts) {
+          console.log(`🔄 可重试错误，${attempts}/${maxAttempts} 次尝试`);
+          const delay = Math.pow(2, attempts) * 1000; // 指数退避
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue; // 重试当前 key
+        } else {
+          console.log(`🔄 重试次数已用尽，切换 API`);
+          const nextKey = keyManager.switchToNextKey();
+          
+          if (!nextKey) {
+            console.error('❌ 所有 API key 都不可用');
+            throw new Error(`所有 API key 都不可用。最后错误: ${classifiedError.message}`);
+          }
+          
+          console.log(`✅ 已切换到 API key ${nextKey.priority}`);
+          attempts = 0; // 重置尝试次数
+          continue; // 使用新 key 重试
+        }
       }
       
-      // 不可重试或已用尽重试次数
+      // 不可重试的错误类型，直接抛出
       throw new Error(`请求大模型失败: ${classifiedError.message}`);
     }
   }

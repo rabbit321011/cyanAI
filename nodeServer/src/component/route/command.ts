@@ -18,6 +18,7 @@ import { createKey, checkKey, bindKeyToQq, unbindKeyFromQq, getAdminKey, verifyQ
 import { QQsendMessage, QQsendImg, sendStagedMessages, StagedMessage, QQsendFile } from "../../utility/QQ/qq";
 import { checkPyServer, checkNapcat } from "../../utility/connect/connect";
 import { readIni } from "../../utility/file_operation/read_ini";
+import { getApiKeyManager } from "../../utility/error_type/api_key_manager";
 import path from "path";
 import fs from "fs";
 import { exec } from "child_process";
@@ -224,6 +225,9 @@ function handleHelp(): string {
 
 ^command reload
   删除 main_status 文件并重置状态（需要op权限）
+
+^command reset api_source
+  将 API 重置为第一个（需要op权限）
 
 ^command bash <命令>
   执行 bash 命令（需要op权限）
@@ -671,6 +675,32 @@ export function runCommand(input: string, qqNum?: string, inlines: inlineData[] 
             return {
                 stop: true,
                 datas: reloadResult
+            };
+
+        case 'reset':
+            if (args[0] === 'api_source') {
+                if (!qqNum) {
+                    return {
+                        stop: true,
+                        datas: 'ERROR:无法获取QQ号'
+                    };
+                }
+                const resetVerifyResult = verifyQqKey(qqNum);
+                if (!resetVerifyResult.valid || !resetVerifyResult.key || !hasPermission(resetVerifyResult.key.key, 'op')) {
+                    return {
+                        stop: true,
+                        datas: 'ERROR:权限不足，需要op或更高权限'
+                    };
+                }
+                getApiKeyManager().resetToFirstKey();
+                return {
+                    stop: true,
+                    datas: 'SUCCESS:已将 API 重置为第一个'
+                };
+            }
+            return {
+                stop: true,
+                datas: 'ERROR:用法: ^command reset api_source'
             };
 
         case 'test':

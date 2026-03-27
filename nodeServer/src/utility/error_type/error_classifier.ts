@@ -184,16 +184,17 @@ class ErrorClassifier {
             };
         }
 
-        // 7. 其他网络错误默认重试
-        if (error?.code === 'ECONNREFUSED' || error?.code === 'ENOTFOUND') {
+        // 7. 可重试的网络错误
+        const retryableNetworkErrors = ['ECONNREFUSED', 'ENOTFOUND'];
+        if (retryableNetworkErrors.includes(error?.code) || errorMessage.includes('socket hang up')) {
             return {
                 action: 'retry',
-                message: `Network error: ${error.code}`,
+                message: error?.code ? `Network error: ${error.code}` : 'Socket hang up',
                 shouldRetry: true
             };
         }
 
-        // 6. 未知错误，直接抛出
+        // 8. 未知错误，直接抛出
         return {
             action: 'throw',
             message: errorMessage || 'Unknown error',

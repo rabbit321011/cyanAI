@@ -20,9 +20,9 @@ export interface erogenous_point{
 export interface theory{
     name:string,//理论名，目前没想到有什么用
     uid:string,//使用get_id生成
-    sub_erogenous_point:weight_key[],//其子的erogenous_point节点
+    sub_erogenous_point:string[],//其子的erogenous_point节点的uid
     activation_threshold:number,//从0到1，表示sub_erogenous_point的总激活值*weight的和后的阈值，默认值待调试，大于这个值则会进行memory_less操作来确证是否引入，如果不需要则
-    activation_threshold_correction:number,//默认为0，如果激活失败，则这玩意加一个值，这个值随着时间衰减，最小为0，指数衰减，半衰期为5次对话
+    activation_threshold_correction:number,//修正值，默认为0，如果激活失败，则这玩意加一个值，这个值随着时间衰减，最小为0，指数衰减，半衰期为5次对话
 }
 export interface build_theory extends theory{
     sub_struct_uid:string,//其衍生struct的uid,是必要的
