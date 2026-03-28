@@ -328,3 +328,185 @@ export function find_name_uid(name:string):string
     const pair = uidWithName_pairs.find(pair => pair.name === name);
     return pair ? pair.uid : "";
 }
+
+export function find_uid_name(uid:string):string
+{
+    const pair = uidWithName_pairs.find(pair => pair.uid === uid);
+    return pair ? pair.name : "";
+}
+
+export function format_uid_with_name(uid:string):string
+{
+    const name = find_uid_name(uid);
+    return name ? `${uid}(${name})` : uid;
+}
+
+export interface ComponentInfo {
+    found: boolean;
+    type: 'source' | 'converter' | 'final_output' | 'pipe' | 'unknown';
+    uid: string;
+    name: string;
+    input_uid?: string;
+    input_name?: string;
+    output_uid?: string;
+    output_name?: string;
+    input_type?: string;
+    output_type?: string;
+    converter_type?: string;
+    output_type_name?: string;
+}
+
+export function check_component(uid_or_name: string): ComponentInfo
+{
+    const uid = find_name_uid(uid_or_name) || uid_or_name;
+    const name = find_uid_name(uid);
+
+    const source = sources.find(s => s.uid === uid);
+    if(source){
+        return {
+            found: true,
+            type: 'source',
+            uid: uid,
+            name: name,
+            input_type: source.type
+        };
+    }
+
+    const converterByInput = converters.find(c => c.input_uid === uid);
+    if(converterByInput){
+        return {
+            found: true,
+            type: 'converter',
+            uid: uid,
+            name: name,
+            input_uid: converterByInput.input_uid,
+            input_name: find_uid_name(converterByInput.input_uid),
+            output_uid: converterByInput.output_uid,
+            output_name: find_uid_name(converterByInput.output_uid),
+            input_type: converterByInput.input_type,
+            output_type: converterByInput.output_type,
+            converter_type: converterByInput.converter_type
+        };
+    }
+
+    const converterByOutput = converters.find(c => c.output_uid === uid);
+    if(converterByOutput){
+        return {
+            found: true,
+            type: 'converter',
+            uid: uid,
+            name: name,
+            input_uid: converterByOutput.input_uid,
+            input_name: find_uid_name(converterByOutput.input_uid),
+            output_uid: converterByOutput.output_uid,
+            output_name: find_uid_name(converterByOutput.output_uid),
+            input_type: converterByOutput.input_type,
+            output_type: converterByOutput.output_type,
+            converter_type: converterByOutput.converter_type
+        };
+    }
+
+    const finalOutput = final_outputs.find(f => f.interface_uid === uid);
+    if(finalOutput){
+        return {
+            found: true,
+            type: 'final_output',
+            uid: uid,
+            name: name,
+            input_type: finalOutput.interface_type,
+            output_type_name: finalOutput.output_type
+        };
+    }
+
+    const pipeByInput = pipes.find(p => p.input_uid === uid);
+    if(pipeByInput){
+        return {
+            found: true,
+            type: 'pipe',
+            uid: uid,
+            name: name,
+            input_uid: pipeByInput.input_uid,
+            input_name: find_uid_name(pipeByInput.input_uid),
+            output_uid: pipeByInput.output_uid,
+            output_name: find_uid_name(pipeByInput.output_uid)
+        };
+    }
+
+    const pipeByOutput = pipes.find(p => p.output_uid === uid);
+    if(pipeByOutput){
+        return {
+            found: true,
+            type: 'pipe',
+            uid: uid,
+            name: name,
+            input_uid: pipeByOutput.input_uid,
+            input_name: find_uid_name(pipeByOutput.input_uid),
+            output_uid: pipeByOutput.output_uid,
+            output_name: find_uid_name(pipeByOutput.output_uid)
+        };
+    }
+
+    return {
+        found: false,
+        type: 'unknown',
+        uid: uid,
+        name: name
+    };
+}
+
+export interface AllComponentsInfo {
+    pipes: { input_uid: string; input_name: string; input_type: string; output_uid: string; output_name: string; output_type: string; formatted: string }[];
+    sources: { uid: string; name: string; type: string; formatted: string }[];
+    converters: { input_uid: string; input_name: string; output_uid: string; output_name: string; input_type: string; output_type: string; converter_type: string; formatted: string }[];
+    final_outputs: { uid: string; name: string; interface_type: string; output_type: string; formatted: string }[];
+}
+
+export function list_all_components(): AllComponentsInfo
+{
+    const pipesInfo = pipes.map(p => {
+        const inputInfo = check_component(p.input_uid);
+        const outputInfo = check_component(p.output_uid);
+        return {
+            input_uid: p.input_uid,
+            input_name: find_uid_name(p.input_uid),
+            input_type: inputInfo.input_type || inputInfo.output_type || '',
+            output_uid: p.output_uid,
+            output_name: find_uid_name(p.output_uid),
+            output_type: outputInfo.input_type || outputInfo.output_type || '',
+            formatted: `${format_uid_with_name(p.input_uid)} -> ${format_uid_with_name(p.output_uid)}`
+        };
+    });
+
+    const sourcesInfo = sources.map(s => ({
+        uid: s.uid,
+        name: find_uid_name(s.uid),
+        type: s.type,
+        formatted: format_uid_with_name(s.uid)
+    }));
+
+    const convertersInfo = converters.map(c => ({
+        input_uid: c.input_uid,
+        input_name: find_uid_name(c.input_uid),
+        output_uid: c.output_uid,
+        output_name: find_uid_name(c.output_uid),
+        input_type: c.input_type,
+        output_type: c.output_type,
+        converter_type: c.converter_type,
+        formatted: `${format_uid_with_name(c.input_uid)} -> [${c.converter_type}] -> ${format_uid_with_name(c.output_uid)}`
+    }));
+
+    const finalOutputsInfo = final_outputs.map(f => ({
+        uid: f.interface_uid,
+        name: find_uid_name(f.interface_uid),
+        interface_type: f.interface_type,
+        output_type: f.output_type,
+        formatted: format_uid_with_name(f.interface_uid)
+    }));
+
+    return {
+        pipes: pipesInfo,
+        sources: sourcesInfo,
+        converters: convertersInfo,
+        final_outputs: finalOutputsInfo
+    };
+}

@@ -1,4 +1,4 @@
-import { input_for_uid, update_converter_runtime } from '../pipe';
+import { input_for_uid, update_converter_runtime, reg_name, creat_pipe, check_component, list_all_components, format_uid_with_name, ComponentInfo, AllComponentsInfo } from '../pipe';
 import { multi_contact_multimedia_message, multi_contact_multimedia_message_array, multimedia_message, inlineData } from '../../../types/process/process.type';
 import { runCommand } from '../../route/command';
 import { QQsendMessage, QQsendFile } from '../../../utility/QQ/qq';
@@ -55,6 +55,10 @@ function getMulsetHelpText(): string {
 ^mulset reload - 重置状态（需要op权限）
 ^mulset reset api_source - 重置API（需要op权限）
 ^mulset bash <命令> - 执行命令（需要op权限）
+^mulset pipe check <name|uid> - 查询组件信息
+^mulset pipe reg_name <name> <uid> - 注册别名
+^mulset pipe creat_pipe <input> <output> - 创建管道
+^mulset pipe list - 列出所有组件
 ^mulset help - 显示此帮助`;
 }
 
@@ -263,6 +267,106 @@ async function handleMulsetCommand(
                 return output || 'SUCCESS:命令执行成功，无输出';
             } catch (error: any) {
                 return `ERROR:执行失败: ${error.message}`;
+            }
+        }
+
+        case 'pipe': {
+            if (args.length < 1) {
+                return 'ERROR:用法: ^mulset pipe <check|reg_name|creat_pipe|list> [参数]';
+            }
+            const pipeSubCmd = args[0]?.toLowerCase();
+            
+            switch (pipeSubCmd) {
+                case 'check': {
+                    if (args.length < 2) {
+                        return 'ERROR:用法: ^mulset pipe check <name|uid>';
+                    }
+                    const target = args[1];
+                    const info = check_component(target);
+                    
+                    if (!info.found) {
+                        return `ERROR:未找到组件: ${target}`;
+                    }
+                    
+                    let result = `【组件信息】\n`;
+                    result += `类型: ${info.type}\n`;
+                    result += `UID: ${info.uid}\n`;
+                    if (info.name) result += `名称: ${info.name}\n`;
+                    
+                    if (info.type === 'source') {
+                        result += `接口类型: ${info.input_type}`;
+                    } else if (info.type === 'converter') {
+                        result += `Converter类型: ${info.converter_type}\n`;
+                        result += `输入UID: ${format_uid_with_name(info.input_uid!)}\n`;
+                        result += `输出UID: ${format_uid_with_name(info.output_uid!)}\n`;
+                        result += `输入接口类型: ${info.input_type}\n`;
+                        result += `输出接口类型: ${info.output_type}`;
+                    } else if (info.type === 'final_output') {
+                        result += `接口类型: ${info.input_type}\n`;
+                        result += `Output类型: ${info.output_type_name}`;
+                    } else if (info.type === 'pipe') {
+                        result += `输入端: ${format_uid_with_name(info.input_uid!)}\n`;
+                        result += `输出端: ${format_uid_with_name(info.output_uid!)}`;
+                    }
+                    
+                    return result;
+                }
+                
+                case 'reg_name': {
+                    if (args.length < 3) {
+                        return 'ERROR:用法: ^mulset pipe reg_name <name> <uid>';
+                    }
+                    const name = args[1];
+                    const uid = args[2];
+                    reg_name(name, uid);
+                    return `SUCCESS:已注册别名 "${name}" -> ${uid}`;
+                }
+                
+                case 'creat_pipe': {
+                    if (args.length < 3) {
+                        return 'ERROR:用法: ^mulset pipe creat_pipe <input_name|uid> <output_name|uid>';
+                    }
+                    const inputUid = args[1];
+                    const outputUid = args[2];
+                    const result = creat_pipe(inputUid, outputUid);
+                    return result;
+                }
+                
+                case 'list': {
+                    const all = list_all_components();
+                    let result = '';
+                    
+                    result += `【Pipe连接】共 ${all.pipes.length} 个\n`;
+                    for (const p of all.pipes) {
+                        result += `  ${p.formatted}\n`;
+                        result += `    类型:${p.input_type} -> ${p.output_type}\n`;
+                    }
+                    
+                    result += `\n【Source数据源】共 ${all.sources.length} 个\n`;
+                    for (const s of all.sources) {
+                        result += `  ${s.formatted} [接口类型:${s.type}]\n`;
+                    }
+                    
+                    result += `\n【Converter转换器】共 ${all.converters.length} 个\n`;
+                    for (const c of all.converters) {
+                        result += `  ${c.formatted}\n`;
+                        result += `    类型:${c.input_type} -> ${c.output_type}\n`;
+                    }
+                    
+                    result += `\n【Final Output最终输出】共 ${all.final_outputs.length} 个\n`;
+                    for (const f of all.final_outputs) {
+                        result += `  ${f.formatted} [接口类型:${f.interface_type} output:${f.output_type}]\n`;
+                    }
+                    
+                    if (result.length > 2000) {
+                        result = result.substring(0, 2000) + '\n...(输出过长，已截断)';
+                    }
+                    
+                    return result;
+                }
+                
+                default:
+                    return 'ERROR:未知的 pipe 子命令\n用法: ^mulset pipe <check|reg_name|creat_pipe|list> [参数]';
             }
         }
 
