@@ -3,6 +3,7 @@ import cors from "cors";
 import agentRouter from "./routes/agent.route";
 import cyanRouter from "./routes/cyan.route"
 import { QQtrackRestart } from "./utility/QQ/qq";
+import { init as pipeInit } from "./component/pipe/pipe";
 const app = express();
 const PORT = 3000;
 
@@ -21,6 +22,13 @@ app.listen(PORT, () => {
   console.log(`🚀 Server running on Port ${PORT}`);
   console.log(`👉 Test: http://localhost:${PORT}/api/agent/status`);
   console.log(`=================================`);
+  
+  // 初始化 pipe 系统
+  pipeInit().then(() => {
+    console.log(`🔧 Pipe 系统初始化完成`);
+  }).catch((error) => {
+    console.error(`🔧 Pipe 系统初始化失败:`, error);
+  });
   
   // 启动 QQ 监听服务
   QQtrackRestart().then((result) => {

@@ -38,14 +38,20 @@ interface converter{
     converter_type:string//动态载入运行的是这玩意
 }
 let converters:converter[] =[];
-export async function creat_converter(runtime_data:any,converter_type:string):Promise<string>
+
+export interface converter_uids {
+    input_uid: string;
+    output_uid: string;
+}
+
+export async function creat_converter(runtime_data:any,converter_type:string,in_name:string = "",out_name:string = ""):Promise<converter_uids | null>
 {
     const converter_path = path.join(__dirname, 'converter', `${converter_type}.ts`);
     
     if(!fs.existsSync(converter_path))
     {
         console.error(`converter模块不存在: ${converter_type}`);
-        return ""
+        return null;
     }
     
     try {
@@ -60,12 +66,26 @@ export async function creat_converter(runtime_data:any,converter_type:string):Pr
             runtime_data: runtime_data,
             converter_type: converter_type
         };
-        
         converters.push(new_converter);
-        return new_converter.input_uid;
+        if(in_name !== ""){
+            reg_name(in_name, new_converter.input_uid)
+        }
+        if(out_name !== ""){
+            reg_name(out_name, new_converter.output_uid)
+        }
+        return {
+            input_uid: new_converter.input_uid,
+            output_uid: new_converter.output_uid
+        };
     } catch (error) {
         console.error(`加载converter模块失败: ${converter_type}`, error);
-        return ""
+        return null;
+    }
+}
+export function update_converter_runtime(uid: string, new_runtime_data: any): void {
+    const converter = converters.find(c => c.input_uid === uid || c.output_uid === uid);
+    if (converter) {
+        converter.runtime_data = new_runtime_data;
     }
 }
 interface final_output{
@@ -116,9 +136,7 @@ export async function input_for_uid(uid:string,data:any,type:string):Promise<voi
         const converter_path = path.join(__dirname, 'converter', `${converter.converter_type}.ts`);
         try {
             const converter_module = await import(converter_path);
-            const result = await converter_module.output(data, converter.runtime_data);
-            //将结果传递给output_uid（递归）
-            await input_for_uid(converter.output_uid, result, converter.output_type);
+            await converter_module.output(data, converter.runtime_data, converter.output_uid, converter.output_type);
         } catch (error) {
             console.error(`加载converter模块失败: ${converter.converter_type}`, error);
         }
@@ -158,10 +176,15 @@ interface source_interface{
     type:string
 }
 let sources:source_interface[] = []//source们的uid
-export function creat_source(type:string = "string"):string//返回uid
+export function creat_source(name:string = "",type:string = "string"):string//返回uid
 {
     let temp_uid = get_id();
+    console.log("注册了source:"+name+"("+temp_uid+")")
     sources.push({uid: temp_uid, type: type});
+    if(name!=="")
+    {
+        reg_name(name,temp_uid)
+    }
     return temp_uid;
 }//source该调用这个来注册
 export function remove_source(uid:string):string//返回执行结果
@@ -176,11 +199,15 @@ export function remove_source(uid:string):string//返回执行结果
 }
 export function creat_pipe(uid_in:string,uid_out:string):string//返回执行结果
 {
+    //自动将name转换为uid
+    const uid_in_resolved = find_name_uid(uid_in) || uid_in;
+    const uid_out_resolved = find_name_uid(uid_out) || uid_out;
+    
     //检查uid_in在converters的输出uid 或 sources 内
     const temp_test_converter_output_uids = converters.map(c => c.output_uid);
     const temp_test_source_uids = sources.map(s => s.uid);
     const temp_test_valid_input_uids = [...temp_test_converter_output_uids, ...temp_test_source_uids];
-    if(!temp_test_valid_input_uids.includes(uid_in))
+    if(!temp_test_valid_input_uids.includes(uid_in_resolved))
     {
         return "ERROR:无效的输入uid"
     }
@@ -188,7 +215,7 @@ export function creat_pipe(uid_in:string,uid_out:string):string//返回执行结
     const temp_test_converter_input_uids = converters.map(c => c.input_uid);
     const temp_test_final_output_uids = final_outputs.map(f => f.interface_uid);
     const temp_test_valid_output_uids = [...temp_test_converter_input_uids, ...temp_test_final_output_uids];
-    if(!temp_test_valid_output_uids.includes(uid_out))
+    if(!temp_test_valid_output_uids.includes(uid_out_resolved))
     {
         return "ERROR:无效的输出uid"
     }
@@ -196,19 +223,19 @@ export function creat_pipe(uid_in:string,uid_out:string):string//返回执行结
     let temp_test_input_type = "";
     let temp_test_output_type = "";
     
-    const temp_test_input_converter = converters.find(c => c.output_uid === uid_in);
+    const temp_test_input_converter = converters.find(c => c.output_uid === uid_in_resolved);
     if(temp_test_input_converter){
         temp_test_input_type = temp_test_input_converter.output_type;
-    }else if(temp_test_source_uids.includes(uid_in)){
-        const temp_test_source = sources.find(s => s.uid === uid_in);
+    }else if(temp_test_source_uids.includes(uid_in_resolved)){
+        const temp_test_source = sources.find(s => s.uid === uid_in_resolved);
         temp_test_input_type = temp_test_source ? temp_test_source.type : "source";
     }
     
-    const temp_test_output_converter = converters.find(c => c.input_uid === uid_out);
+    const temp_test_output_converter = converters.find(c => c.input_uid === uid_out_resolved);
     if(temp_test_output_converter){
         temp_test_output_type = temp_test_output_converter.input_type;
     }else{
-        const temp_test_output_final = final_outputs.find(f => f.interface_uid === uid_out);
+        const temp_test_output_final = final_outputs.find(f => f.interface_uid === uid_out_resolved);
         if(temp_test_output_final){
             temp_test_output_type = temp_test_output_final.interface_type;
         }
@@ -219,7 +246,7 @@ export function creat_pipe(uid_in:string,uid_out:string):string//返回执行结
         return "ERROR:接口类型错误,输入接口的类型为:"+temp_test_input_type+",输出接口的类型为"+temp_test_output_type
     }
     //开始绑定
-    const temp_test_new_pipe = new pipe(uid_in, uid_out, "const");
+    const temp_test_new_pipe = new pipe(uid_in_resolved, uid_out_resolved, "const");
     pipes.push(temp_test_new_pipe);
     return "SUCCESS:pipe创建成功"
 }//创建一个pipe
@@ -258,7 +285,34 @@ export async function init(){
                 name: name,
                 uid: uid
             });
+            console.log("注册了对象："+name+":"+uid)
         }
+        
+    }//注册final_output对象
+    
+    //等待1秒后根据default_pipe.list注册管道
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    const pipe_list_path = path.join(__dirname, 'default_pipe.list');
+    if(!fs.existsSync(pipe_list_path)){
+        console.error('default_pipe.list 文件不存在');
+        return;
+    }
+    //注册converter
+    await creat_converter(null,"command_multi_contact_multimedia_message","main_command_converter_in","main_command_converter_out");
+    const pipe_list_content = fs.readFileSync(pipe_list_path, 'utf-8');
+    const pipe_lines = pipe_list_content.split('\n').filter(line => line.trim() !== '');
+    for(const line of pipe_lines){
+        const pipe_config = line.trim();
+        if(!pipe_config) continue;
+        const [source_name, output_name] = pipe_config.split(':');
+        if(!source_name || !output_name){
+            console.error(`管道配置格式错误: ${pipe_config}`);
+            continue;
+        }
+        const output_name_clean = output_name.replace(/\.ts$/, '');
+        const result = creat_pipe(source_name, output_name_clean);
+        console.log(`注册管道: ${source_name} -> ${output_name_clean}: ${result}`);
     }
 }//输入的init需要输入端自己执行以获取uid
 export function reg_name(name:string, uid:string):void

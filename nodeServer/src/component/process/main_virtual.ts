@@ -1,5 +1,6 @@
 //-----------------这里是接口啥的的定义----------------------------------
-import {inlineData,functionCall,functionResponse,Message,MemoryState,LinesP,EventOutputItem} from '../../types/process/process.type'
+// #region imports
+import {inlineData,functionCall,functionResponse,Message,MemoryState,LinesP,EventOutputItem,QueueMessageInput} from '../../types/process/process.type'
 import {readIni} from '../../utility/file_operation/read_ini'
 import {loadInitialEvents} from '../events/event_loader'
 import {now, sub, compare} from '../../utility/time/cyan_time'
@@ -11,8 +12,16 @@ import { isError } from '../../utility/error_out/error_out';
 import { remove_timestamp } from '../escaper/remove_timestamp';
 import { saveEvent } from '../events/event_saver';
 import { excuteTool } from './tool_process';
-import { QQidleSignal } from '../../utility/QQ/qq';
 import { getApiKeyManager } from '../../utility/error_type/api_key_manager';
+import { 
+    creat_source,      // 创建数据源
+    creat_output,      // 创建最终输出
+    creat_pipe,        // 连接管道
+    input_for_uid      // 向管道输入数据
+} from '../pipe/pipe';
+// #endregion
+
+// #region interface
 export interface workspace_ent{
     index:string,//以ws开头，然后是序号
     current:string//这里写着%[文件的完整路径]或者直接是文件内容
@@ -110,8 +119,9 @@ export interface part_unit {
   };
   thoughtSignature?: string;
 }
-
+// #endregion
 //-------------------------------这块是维护核心功能的---------------------------------------
+// #region core_file
 //这个文件是最核心的文件，负责维护main-virtual
 let main_status:total_status|null = null;
 let main_virtual_busy:boolean = false;
@@ -134,7 +144,7 @@ const default_status:total_status = {
 //以上变量都是核心的内容，但是本文件只是维护main-virtual的文件，故以上的变量不是持久化的，而是每次使用重新从core_data载入的
 export function get_busy():boolean{
     return main_virtual_busy;
-}
+}//获取盲目状态
 export function getCoreStateForFile():string//该函数会从core_datas/main_virtual/main_virtual.status中载入main-virtual的状态,返回执行的结果
 {
     //清空状态变量
@@ -176,7 +186,7 @@ export function getCoreStateForFile():string//该函数会从core_datas/main_vir
             return "ERROR:新的状态文件写入失败"
     }
     return "ERROR:意外的结果？"
-}
+}//载入status文件
 export function saveCoreStateForFile():string{
     if(main_status === null)
         return "ERROR:当前state是空的"
@@ -207,7 +217,7 @@ export function getMainStatus():total_status|null{
         getCoreStateForFile();
     }
     return main_status;
-}
+}//获取主状态（貌似没用？)
 export function reloadMainStatus():string{
     const statusPath = path.join(__dirname, "../../../core_datas/main_virtual/main_virtual.status");
     if(fs.existsSync(statusPath))
@@ -222,7 +232,7 @@ export function reloadMainStatus():string{
     main_status = null;
     return "SUCCESS:已重载，main_status已清空";
 }//清空main_status变量和文件
-export function addMessage(addition:Message):string{
+function addMessage(addition:Message):string{
     try
     {
         main_status?.context.push(addition);
@@ -232,7 +242,7 @@ export function addMessage(addition:Message):string{
     {
         return "ERROR";
     }
-}//如果main_status没有被初始化，那么函数将会没有效果。新增对话条目
+}//如果main_status没有被初始化，那么函数将会没有效果。直接置入一个message对象
 function readStatusFromFile(filePath: string): total_status | null {
   try {
     const fileContent: string = fs.readFileSync(filePath, 'utf-8');
@@ -247,7 +257,7 @@ function readStatusFromFile(filePath: string): total_status | null {
 function readFileSyncAsString(filePath: string): string {
     const fileContent: string = fs.readFileSync(filePath, 'utf-8');
     return fileContent;
-}
+}//输入文件路径，删除
 /**
  * 同步地将一个 total_status 对象以JSON格式写入文件。
  * @param filePath 要写入的文件的路径。
@@ -274,44 +284,21 @@ function writeStatusToFile(filePath: string, statusObject: total_status): boolea
     console.error(`写入JSON文件时出错: ${filePath}`, error);
     return false; // 表示失败
   }
-}
-//-----------------------------这里是进行进一步的功能的---------------------------------------
-const default_Message = {
-    current:"这是默认文本",
-    role_type:"user",
-    role:"default",
-    time:"20240101_000000",
-    file:[],
-    inline:[],
-    toolsCalls:[],
-    toolsResponse:[]
-}
-export function addMessageFromString(addition:string,type:string = "user",name:string = "321哦啦啦",files:string[] = [],inlines:inlineData[] = []):string
+}//把status写入文件
+// #endregion
+//-----------------------------这里是工具啥的---------------------------------------
+export function verify_chatable():boolean
 {
-        /*
-        export interface Message {
-        current:string;//这是原始的文本内容，是没有转义的,不带时间和发言人
-        role_type:string;//这是发言人的类型,可以是user,或者model
-        role:string;//这是发言者的名字
-        time:string;//这是基于cyanTime的标准时间字符串
-        file:string[];//这是附带的文件,是一个数组，每个成员都是一个完整的文件路径
-        inline:inlineData[];//这是附带的内联文件
-        toolsCalls?:functionCall[];//这是做出的functionCall，只有model类型才有
-        toolsResponse?:functionResponse[];//这是回答的functionResponse，只有user类型才有
-        } 
-        */
-    let temp_Message:Message = {...default_Message};
-    temp_Message.current = addition;
-    temp_Message.time = now();
-    temp_Message.role_type = type;
-    temp_Message.role = name;
-    temp_Message.file = files;
-    temp_Message.inline = inlines;
-    //其他玩意为空就行
-    main_status?.context.push(temp_Message);
-    return "SUCCESS:执行完成"
-}//这个函数添加一个Message,接口比较完善
-
+//判断是否可以执行sendAll
+//最后一条消息的role_type必须是user
+//注意：functionCall 由 model 发出，functionResponse 由 user 发出
+if(main_status && (main_status.context.length !== 0 ))
+{
+    const last_role_type = main_status.context[main_status.context.length - 1].role_type;
+    return last_role_type === "user";
+}
+return false;
+}//判断是否可以发送消息（判断最后一条是不是user，其实已经过时了
 async function summarizeImage(imageData: inlineData): Promise<string> {
     const request: EasyGeminiRequest = {
         contents: [{
@@ -340,7 +327,6 @@ async function summarizeImage(imageData: inlineData): Promise<string> {
         return '[图片内容无法识别]';
     }
 }//总结图片内容
-
 async function processImageSummaries(): Promise<void> {
     if (!main_status) return;
     
@@ -411,7 +397,72 @@ async function processImageSummaries(): Promise<void> {
         }
     }
 }//总结该总结的图片到文本
-
+export function verify_context():boolean
+{
+//不能有连续的model
+//第一条得是user
+//最后一条只能是user，不能是model或function
+//支持多part：允许连续的user消息，它们会被合并到一个content_unit的parts中
+if(main_status && (main_status.context.length !== 0 ))
+{
+    const temp_message_length= main_status.context.length
+    if(main_status.context[0].role_type !== "user")
+        return false;
+    let temp_last_type = "user"
+    for(let i = 1 ; i < temp_message_length; i++)
+    {
+        // 检查是否有连续的 model（functionCall 应该由 model 发出，但会被 user 的 functionResponse 跟随）
+        if(temp_last_type === "model" && main_status.context[i].role_type === "model")
+        {
+            return false;//有问题
+        }
+        temp_last_type = main_status.context[i].role_type;
+    }
+    //单独校验一下最后一条
+    // 最后一条必须是 user（包含 functionResponse）
+    if(main_status.context[temp_message_length - 1].role_type !== "user")
+        return false;
+    return true;
+}
+else
+    return false;//模型不存在
+}//这个检查当前状态是否合法
+//-----------------------------这里是进行上下文的功能的---------------------------------------
+const default_Message = {
+    current:"这是默认文本",
+    role_type:"user",
+    role:"default",
+    time:"20240101_000000",
+    file:[],
+    inline:[],
+    toolsCalls:[],
+    toolsResponse:[]
+}//默认文件
+export function addMessageFromString(addition:string,type:string = "user",name:string = "321哦啦啦",files:string[] = [],inlines:inlineData[] = []):string
+{
+        /*
+        export interface Message {
+        current:string;//这是原始的文本内容，是没有转义的,不带时间和发言人
+        role_type:string;//这是发言人的类型,可以是user,或者model
+        role:string;//这是发言者的名字
+        time:string;//这是基于cyanTime的标准时间字符串
+        file:string[];//这是附带的文件,是一个数组，每个成员都是一个完整的文件路径
+        inline:inlineData[];//这是附带的内联文件
+        toolsCalls?:functionCall[];//这是做出的functionCall，只有model类型才有
+        toolsResponse?:functionResponse[];//这是回答的functionResponse，只有user类型才有
+        } 
+        */
+    let temp_Message:Message = {...default_Message};
+    temp_Message.current = addition;
+    temp_Message.time = now();
+    temp_Message.role_type = type;
+    temp_Message.role = name;
+    temp_Message.file = files;
+    temp_Message.inline = inlines;
+    //其他玩意为空就行
+    main_status?.context.push(temp_Message);
+    return "SUCCESS:执行完成"
+}//这个函数添加一个Message,接口比较完善
 export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:number = 2000):Promise<string>
 {
     
@@ -547,7 +598,7 @@ export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:num
                     maxOutputTokens:INmaxOutputTokens
                 },
                 tools: toolsConfig
-            }
+            }//发出请求
             //console.log(request.contents[0].parts[0].text)
             const llmSource = readIni(path.join(__dirname,'../../../library_source.ini'),'main_virtual_source');
             let response;
@@ -565,7 +616,7 @@ export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:num
                     "gemini-3-pro-preview",
                     readIni(path.join(__dirname,'../../../library_source.ini'),'google_base_url')
                 );
-            }
+            }//调用LLM模型
             /*
 1. gemini-3.1-pro-preview - 最新的 Pro 版本预览，功能最全面
 2. gemini-3-pro-preview - 当前代码中使用的模型，性能和功能都很强大
@@ -617,11 +668,11 @@ export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:num
                         currentKey?.baseUrl || readIni(path.join(__dirname,'../../../library_source.ini'),'google_base_url')
                     );
                 }
-            }
+            }//失败的重试逻辑
             
             // 处理 function calls 的循环，直到模型返回文本
             let functionCallLoopCount = 0;
-            const maxFunctionCallLoops = 10; // 防止无限循环
+            const maxFunctionCallLoops = 15; // 防止无限循环
             let thoughtSignatureRetryCount = 0;
             const maxThoughtSignatureRetries = 3;
             
@@ -813,7 +864,7 @@ export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:num
                         retryContent.push(temp_unit);
                         last_retry_unit = temp_unit;
                     }
-                });
+                });//构造上下文
                 
                 retryRequest.contents = retryContent;
                 
@@ -831,7 +882,7 @@ export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:num
                         "gemini-3-pro-preview",
                         readIni(path.join(__dirname, '../../../library_source.ini'), 'google_base_url')
                     );
-                }
+                }//发送请求
                 
                 // 如果返回空内容，继续重新请求（重试+切换API）
                 let retryCount = 0;
@@ -947,14 +998,14 @@ export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:num
                             retryKey?.baseUrl || readIni(path.join(__dirname, '../../../library_source.ini'), 'google_base_url')
                         );
                     }
-                }
+                }//请求失败的重试循环
                 
                 // 如果所有API都尝试过仍返回空内容，抛出错误
                 if (!response.text && (!response.functionCalls || response.functionCalls.length === 0)) {
                     console.error('❌ 所有 API 源都返回空内容');
                     throw new Error('所有 API 源都返回空内容，请检查服务状态');
                 }
-            }
+            }//函数调用的流程循环
             
             // 检查是否超过最大循环次数
             if (functionCallLoopCount >= maxFunctionCallLoops) {
@@ -976,40 +1027,32 @@ export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:num
             }
             //然后存下文件
             saveCoreStateForFile()
+            input_for_uid(final_output_pipe_source_uid,response.text,"string")
             main_virtual_busy = false;
-            QQidleSignal().catch((error: any) => {
-                console.error('QQidleSignal调用失败:', error);
+            process_waiting().catch((error: any) => {
+                console.error('process_waiting调用失败:', error);
             });
             return "SUCCESS:回复正常"
         }catch{
             main_virtual_busy = false;
-            QQidleSignal().catch((error: any) => {
-                console.error('QQidleSignal调用失败:', error);
+            process_waiting().catch((error: any) => {
+                console.error('process_waiting调用失败:', error);
             });
             return "ERROR:状态合法但是发生错误"
         }
         
     }
     main_virtual_busy = false;
-    QQidleSignal().catch((error: any) => {
-        console.error('QQidleSignal调用失败:', error);
+    process_waiting().catch((error: any) => {
+        console.error('process_waiting调用失败:', error);
     });
+    
     return "ERROR:当前状态不合法"
 }//这个函数发送当前的的上下文状态给模型,并且模型的回复会添加在main_status的上下文里，返回的只是执行状态
+let final_output_pipe_source_uid = creat_source("main_virtual_final_output", "string")
+//其注册一个source:main_virtual_final_output
 
-export function verify_chatable():boolean
-{
-//判断是否可以执行sendAll
-//最后一条消息的role_type必须是user
-//注意：functionCall 由 model 发出，functionResponse 由 user 发出
-if(main_status && (main_status.context.length !== 0 ))
-{
-    const last_role_type = main_status.context[main_status.context.length - 1].role_type;
-    return last_role_type === "user";
-}
-return false;
-}//判断是否可以发送消息（判断最后一条是不是user，其实已经过时了
-
+/*
 export function context_back():string
 {
 //删除靠尾的Message，直到最后一条是user
@@ -1030,37 +1073,8 @@ if(main_status && (main_status.context.length !== 0 ))
 }
 return "ERROR:上下文为空";
 }//回退上下文直到最后一条是user或function
+*/
 
-export function verify_context():boolean
-{
-//不能有连续的model
-//第一条得是user
-//最后一条只能是user，不能是model或function
-//支持多part：允许连续的user消息，它们会被合并到一个content_unit的parts中
-if(main_status && (main_status.context.length !== 0 ))
-{
-    const temp_message_length= main_status.context.length
-    if(main_status.context[0].role_type !== "user")
-        return false;
-    let temp_last_type = "user"
-    for(let i = 1 ; i < temp_message_length; i++)
-    {
-        // 检查是否有连续的 model（functionCall 应该由 model 发出，但会被 user 的 functionResponse 跟随）
-        if(temp_last_type === "model" && main_status.context[i].role_type === "model")
-        {
-            return false;//有问题
-        }
-        temp_last_type = main_status.context[i].role_type;
-    }
-    //单独校验一下最后一条
-    // 最后一条必须是 user（包含 functionResponse）
-    if(main_status.context[temp_message_length - 1].role_type !== "user")
-        return false;
-    return true;
-}
-else
-    return false;//模型不存在
-}//这个检查当前状态是否合法
 //-----------------------------这里是前端直接用到的函数--------------------------------------
 export async function sendUserMessage(send_curr:string,user_name:string):Promise<string>{
     //会先判断现在有没有status,如果没有就先新建一个
@@ -1078,7 +1092,6 @@ export async function sendUserMessage(send_curr:string,user_name:string):Promise
         return send_response
     return "ERROR:历史记录的最后一条获取失败"
 }//以用户的身份发送信息，不支持工具调用
-
 export function addQueueMessage(send_curr:string,user_name:string,files:string[] = [],inlines:inlineData[] = []):string{
     //会先判断现在有没有status,如果没有就先新建一个
     if(!main_status)
@@ -1090,8 +1103,28 @@ export function addQueueMessage(send_curr:string,user_name:string,files:string[]
         return "SUCCESS:消息已加入队列"
     else
         return "ERROR:添加消息到队列失败"
-}//以用户的身份添加消息到队列
-
+}//以用户的身份添加消息到status
+let waiting_message:QueueMessageInput[] = []
+export function autoAddMessage(send_curr:string,user_name:string,files:string[] = [],inlines:inlineData[] = [])
+{
+    if(main_virtual_busy) {
+        waiting_message.push({send_curr, user_name, files, inlines})
+    } else {
+        addQueueMessage(send_curr, user_name, files, inlines)
+        sendAll().catch((error: any) => {
+            console.error('autoAddMessage发送消息失败:', error);
+        });
+    }
+}
+async function process_waiting()
+{
+    if(waiting_message.length === 0) return;
+    waiting_message.map((curr)=>{
+        addQueueMessage(curr.send_curr, curr.user_name, curr.files, curr.inlines)
+    })
+    waiting_message = []
+    await sendAll()
+}
 export function exit_status():boolean{
     if(main_status)
         return true;

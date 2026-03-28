@@ -1,0 +1,19 @@
+本文档列出所有source以及其格式
+{
+    名字:main_virtual_final_output
+    注册地:main_virtual.ts
+    注册时间:程序开始运行时
+    说明:sendAll会把其最后结果输出到这里
+    type:string
+    type_struct:string(直接是一个string,不包装)
+},
+{
+    名字:main_qq_messages
+    注册地:qq.ts
+    注册时间:程序开始运行时
+    说明:napcat接收到消息会触发这玩意
+    type:multi_contact_multimedia_message_array(定义在process.type.ts里)
+    type_struct:{
+        messages: multi_contact_multimedia_message[];
+    }
+}

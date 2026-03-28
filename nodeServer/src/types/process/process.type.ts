@@ -52,3 +52,22 @@ export interface routeOutput{
     stop:boolean;
     datas:any;
 }//这玩意是路由的输出
+export interface QueueMessageInput{
+    send_curr:string;
+    user_name:string;
+    files:string[];
+    inlines:inlineData[];
+}//等待消息队列的输入格式
+export interface multimedia_message{
+    type:'text'|'image';
+    content:string;
+    inline?:inlineData;
+}//多媒体消息部分，可以是文本或图片
+export interface multi_contact_multimedia_message{
+    id:string;
+    name:string;
+    parts:multimedia_message[];
+}//多联系人多媒体消息格式
+export interface multi_contact_multimedia_message_array{
+    messages:multi_contact_multimedia_message[];
+}//多联系人多媒体消息数组格式

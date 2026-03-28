@@ -1,8 +1,7 @@
 import WebSocket from 'ws';
 import { readIni } from '../file_operation/read_ini';
-import { get_busy, addQueueMessage, sendAll } from '../../component/process/main_virtual';
-import { isCommandMessage, runCommand } from '../../component/route/command';
-import { inlineData } from '../../types/process/process.type';
+import { creat_source, input_for_uid } from '../../component/pipe/pipe';
+import { inlineData, multimedia_message } from '../../types/process/process.type';
 import { verifyQqKey, deductKeyQuota } from '../key_system/key_manager';
 import fs from 'fs';
 import path from 'path';
@@ -13,25 +12,13 @@ interface FriendInfo {
     qq_num: string;
 }
 
-interface MessagePart {
-    type: 'text' | 'image';
-    content: string;  // 文本内容或图片占位符
-    inline?: inlineData;  // 只有 type 为 'image' 时存在
-}
-
-interface WaitQueueItem {
-    qq_num: string;
-    qq_name: string;
-    parts: MessagePart[];  // 保持原始顺序的消息部分
-}
+let main_qq_messages_uid = creat_source("main_qq_messages", "multi_contact_multimedia_message_array");
 
 let apiWs: WebSocket | null = null;
 let eventWs: WebSocket | null = null;
 let isConnected: boolean = false;
 let reconnectAttempts: number = 0;
 const maxReconnectAttempts: number = 3;
-
-let wait_queue: WaitQueueItem[] = [];
 
 let pendingRequests: Map<number, { resolve: (value: any) => void; reject: (reason: any) => void }> = new Map();
 let requestId: number = 0;
@@ -123,7 +110,7 @@ async function handleEvent(event: any): Promise<void> {
         const qq_num = String(event.user_id);
         const qq_name = event.sender?.nickname || qq_num;
         
-        const parts: MessagePart[] = [];
+        const parts: multimedia_message[] = [];
         
         if (event.message && Array.isArray(event.message)) {
             for (const seg of event.message) {
@@ -399,217 +386,35 @@ export async function QQtrackRestart(): Promise<string> {
  * 发送提示消息让用户绑定KEY
  */
 async function sendKeyPrompt(qq_num: string): Promise<void> {
-    const promptText = `你需要输入KEY来使用 cyanAI\n\n使用方法：\n1. 联系管理员获取KEY\n2. 发送 "^command bindkey 你的KEY" 绑定\n\n查询KEY信息发送 "^command checkkey 你的KEY"`;
+    const promptText = `你需要输入KEY来使用 cyanAI\n\n使用方法：\n1. 联系管理员获取KEY\n2. 发送 "^mulset bindkey 你的KEY" 绑定\n\n查询KEY信息发送 "^mulset checkkey"`;
     await QQsendMessage(qq_num, promptText);
 }
 
-export async function QQtrackTextExecute(qq_num: string, qq_name: string, parts: MessagePart[]): Promise<string> {
-    // 构建消息文本，保持原始顺序
-    let messageText = '';
-    const inlines: inlineData[] = [];
-
-    for (const part of parts) {
-        if (part.type === 'text') {
-            messageText += part.content;
-        } else if (part.type === 'image' && part.inline) {
-            messageText += part.content;
-            inlines.push(part.inline);
-        }
+export async function QQtrackTextExecute(qq_num: string, qq_name: string, parts: multimedia_message[]): Promise<string> {
+    // KEY验证
+    const verifyResult = verifyQqKey(qq_num);
+    if (!verifyResult.valid) {
+        await sendKeyPrompt(qq_num);
+        return `SUCCESS:KEY验证失败，已发送提示 - ${verifyResult.error}`;
     }
 
-    // 检查是否为命令消息，命令不需要KEY验证
-    const isCommand = isCommandMessage(messageText, qq_num);
-
-    // 非命令消息需要验证KEY并扣除额度
-    if (!isCommand) {
-        const verifyResult = verifyQqKey(qq_num);
-        if (!verifyResult.valid) {
-            // KEY验证失败，发送提示并拒绝处理
-            await sendKeyPrompt(qq_num);
-            return `SUCCESS:KEY验证失败，已发送提示 - ${verifyResult.error}`;
+    // 扣除KEY额度
+    if (verifyResult.key) {
+        const deductResult = deductKeyQuota(verifyResult.key.key);
+        if (!deductResult.success) {
+            await QQsendMessage(qq_num, `KEY额度扣除失败: ${deductResult.error}`);
+            return `SUCCESS:KEY额度扣除失败 - ${deductResult.error}`;
         }
-
-        // 扣除KEY额度
-        if (verifyResult.key) {
-            const deductResult = deductKeyQuota(verifyResult.key.key);
-            if (!deductResult.success) {
-                await QQsendMessage(qq_num, `KEY额度扣除失败: ${deductResult.error}`);
-                return `SUCCESS:KEY额度扣除失败 - ${deductResult.error}`;
-            }
-        }
-    }
-
-    const busy = get_busy();
-
-    if (busy) {
-        wait_queue.push({ qq_num, qq_name, parts });
-        return "SUCCESS:消息已加入等待队列";
-    } else {
-        // 检查原始文本是否包含命令
-        if (isCommand) {
-            // 命令消息，传递QQ号以便执行需要QQ号的操作
-            const commandResult = runCommand(messageText, qq_num, inlines, qq_name);
-            if (commandResult.stop) {
-                // 如果 stop 为 true，根据返回内容决定是否发送回复
-                const responseText = commandResult.datas;
-                if (responseText && !responseText.includes('事件已结束')) {
-                    const sendResult = await QQsendMessage(qq_num, responseText);
-                    console.log(`[命令回复] ${sendResult}`);
-                }
-                return "SUCCESS:消息被命令拦截";
-            }
-            // 使用处理后的数据继续处理
-            messageText = commandResult.datas;
-        }
-        
-        let message: string;
-        if (messageText && inlines.length > 0) {
-            // 文本 + 图片
-            message = `QQ联系人:${qq_name}(${qq_num})发来了消息:${messageText}`;
-        } else if (messageText) {
-            // 纯文本
-            message = `QQ联系人:${qq_name}(${qq_num})发来了消息:${messageText}`;
-        } else if (inlines.length > 0) {
-            // 纯图片
-            message = `QQ联系人:${qq_name}(${qq_num})发来了图片`;
-        } else {
-            // 空消息（不应该发生）
-            message = `QQ联系人:${qq_name}(${qq_num})发来了空消息`;
-        }
-        
-        addQueueMessage(message, 'system', [], inlines);
-        sendAll().catch((error: any) => {
-            console.error('发送消息到main_virtual失败:', error);
-        });
-        return "SUCCESS:消息已发送";
-    }
-}
-
-export async function QQidleSignal(): Promise<string> {
-    const busy = get_busy();
-
-    if (busy) {
-        console.log('QQidleSignal: busy状态为true，这是错误的');
-        return "ERROR:错误的busy状态";
-    }
-
-    if (wait_queue.length === 0) {
-        return "SUCCESS:等待队列为空";
-    }
-
-    for (const item of wait_queue) {
-        // 构建消息文本，保持原始顺序
-        let messageText = '';
-        const inlines: inlineData[] = [];
-
-        for (const part of item.parts) {
-            if (part.type === 'text') {
-                messageText += part.content;
-            } else if (part.type === 'image' && part.inline) {
-                messageText += part.content;
-                inlines.push(part.inline);
-            }
-        }
-
-        // 检查是否为命令消息
-        const isCommand = isCommandMessage(messageText, item.qq_num);
-
-        // 非命令消息需要验证KEY
-        if (!isCommand) {
-            const verifyResult = verifyQqKey(item.qq_num);
-            if (!verifyResult.valid) {
-                // KEY验证失败，发送提示并跳过
-                await sendKeyPrompt(item.qq_num);
-                console.log(`[KEY验证] QQ ${item.qq_num} 验证失败: ${verifyResult.error}`);
-                continue;
-            }
-        }
-
-        // 检查原始文本是否包含命令
-        if (isCommand) {
-            // 命令消息，传递QQ号
-            const commandResult = runCommand(messageText, item.qq_num, inlines, item.qq_name);
-            if (commandResult.stop) {
-                // 如果 stop 为 true，根据返回内容决定是否发送回复
-                const responseText = commandResult.datas;
-                if (responseText && !responseText.includes('事件已结束')) {
-                    const sendResult = await QQsendMessage(item.qq_num, responseText);
-                    console.log(`[命令回复] ${sendResult}`);
-                }
-                continue;
-            }
-            // 使用处理后的数据继续处理
-            messageText = commandResult.datas;
-        }
-        
-        let message: string;
-        if (messageText && inlines.length > 0) {
-            // 文本 + 图片
-            message = `QQ联系人:${item.qq_name}(${item.qq_num})发送了消息:"${messageText}"`;
-        } else if (messageText) {
-            // 纯文本
-            message = `QQ联系人:${item.qq_name}(${item.qq_num})发送了消息:"${messageText}"`;
-        } else if (inlines.length > 0) {
-            // 纯图片
-            message = `QQ联系人:${item.qq_name}(${item.qq_num})发送了图片`;
-        } else {
-            // 空消息（不应该发生）
-            message = `QQ联系人:${item.qq_name}(${item.qq_num})发送了空消息`;
-        }
-        
-        addQueueMessage(message, 'system', [], inlines);
     }
     
-    wait_queue = [];
+    // 通过 pipe 发送消息（单元素数组）
+    input_for_uid(main_qq_messages_uid, {
+        messages: [{
+            id: qq_num,
+            name: qq_name,
+            parts: parts
+        }]
+    }, "multi_contact_multimedia_message_array");
     
-    sendAll().catch((error: any) => {
-        console.error('QQidleSignal发送消息失败:', error);
-    });
-    
-    return "SUCCESS:等待队列已处理";
-}
-
-export interface StagedMessage {
-    text: string;
-    inlines: inlineData[];
-}
-
-export async function sendStagedMessages(qqNum: string, qqName: string, messages: StagedMessage[]): Promise<string> {
-    if (messages.length === 0) {
-        return "SUCCESS:暂存区为空";
-    }
-
-    const busy = get_busy();
-
-    if (busy) {
-        for (const msg of messages) {
-            const parts: MessagePart[] = [];
-            if (msg.text) {
-                parts.push({ type: 'text', content: msg.text });
-            }
-            for (const inline of msg.inlines) {
-                parts.push({ type: 'image', content: '[图片]', inline });
-            }
-            wait_queue.push({ qq_num: qqNum, qq_name: qqName, parts });
-        }
-        return "SUCCESS:消息已加入等待队列";
-    } else {
-        for (const msg of messages) {
-            let message: string;
-            if (msg.text && msg.inlines.length > 0) {
-                message = `QQ联系人:${qqName}(${qqNum})发来了消息:${msg.text}`;
-            } else if (msg.text) {
-                message = `QQ联系人:${qqName}(${qqNum})发来了消息:${msg.text}`;
-            } else if (msg.inlines.length > 0) {
-                message = `QQ联系人:${qqName}(${qqNum})发来了图片`;
-            } else {
-                continue;
-            }
-            addQueueMessage(message, 'system', [], msg.inlines);
-        }
-        sendAll().catch((error: any) => {
-            console.error('sendStagedMessages发送消息失败:', error);
-        });
-        return "SUCCESS:暂存消息已发送";
-    }
+    return "SUCCESS:消息已发送到pipe";
 }
