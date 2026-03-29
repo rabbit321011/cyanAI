@@ -4,7 +4,7 @@ VUE/node_modules/
 nodeServer/node_modules/
 nodeServer/library_source.ini
 nodeServer/src/utility/QQ/参考文档/
-nodeServer/dataBase/user_keys/bindings.json
-nodeServer/dataBase/user_keys/keys.json
+nodeServer/dataBase/
+nodeServer/test/
 nodeServer/core_datas/tool_responses/
 nodeServer/core_datas/main_virtual/main_virtual.status
