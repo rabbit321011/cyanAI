@@ -58,11 +58,15 @@ export interface QueueMessageInput{
     files:string[];
     inlines:inlineData[];
 }//等待消息队列的输入格式
+export interface standard_message_pack{
+    items:QueueMessageInput[]
+}
 export interface multimedia_message{
-    type:'text'|'image';
+    type:'text'|'image'|'audio'|'video'|'file';
     content:string;
     inline?:inlineData;
-}//多媒体消息部分，可以是文本或图片
+    file_url?:string;
+}//多媒体消息部分，支持文本、图片、音频、视频、文件
 export interface multi_contact_multimedia_message{
     id:string;
     name:string;

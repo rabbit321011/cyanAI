@@ -1,0 +1,15 @@
+时间: 2026/3/28 14:00:09
+上下文: 检查真实 event 文件
+错误信息: [CyanEventLoader] 真实 event 文件为空: E:\MyProject\cyanAI\nodeServer\dataBase\events\2026\03\23\203146.ent
+堆栈跟踪:
+Error: [CyanEventLoader] 真实 event 文件为空: E:\MyProject\cyanAI\nodeServer\dataBase\events\2026\03\23\203146.ent
+    at loadInitialEvents (E:\MyProject\cyanAI\nodeServer\src\component\events\event_loader.ts:145:35)
+    at getCoreStateForFile (E:\MyProject\cyanAI\nodeServer\src\component\process\main_virtual.ts:168:67)
+    at addQueueMessage (E:\MyProject\cyanAI\nodeServer\src\component\process\main_virtual.ts:1098:20)
+    at autoAddMessage (E:\MyProject\cyanAI\nodeServer\src\component\process\main_virtual.ts:1115:13)
+    at Object.output (E:\MyProject\cyanAI\nodeServer\src\component\pipe\output\main_virtual_input.ts:9:19)
+    at input_for_uid (E:\MyProject\cyanAI\nodeServer\src\component\pipe\pipe.ts:157:33)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async input_for_uid (E:\MyProject\cyanAI\nodeServer\src\component\pipe\pipe.ts:168:9)
+    at async Object.output (E:\MyProject\cyanAI\nodeServer\src\component\pipe\converter\mulcontect_gemini_messages.ts:57:9)
+    at async input_for_uid (E:\MyProject\cyanAI\nodeServer\src\component\pipe\pipe.ts:139:13)

@@ -1,12 +1,13 @@
 //-----------------这里是接口啥的的定义----------------------------------
 // #region imports
-import {inlineData,functionCall,functionResponse,Message,MemoryState,LinesP,EventOutputItem,QueueMessageInput} from '../../types/process/process.type'
+import {inlineData,functionCall,functionResponse,Message,MemoryState,LinesP,EventOutputItem,QueueMessageInput,standard_message_pack} from '../../types/process/process.type'
 import {readIni} from '../../utility/file_operation/read_ini'
 import {loadInitialEvents} from '../events/event_loader'
 import {now, sub, compare} from '../../utility/time/cyan_time'
 import fs from 'fs';
 import path from 'path';
-import { callGoogleLLM, EasyGeminiRequest } from '../../utility/LLM_call/google_call';
+import axios from 'axios';
+import { callGoogleLLM, EasyGeminiRequest, EasyGeminiResponse } from '../../utility/LLM_call/google_call';
 import { callDeepSeekTemp } from '../../utility/temp/deepseek_call';
 import { isError } from '../../utility/error_out/error_out';
 import { remove_timestamp } from '../escaper/remove_timestamp';
@@ -463,6 +464,119 @@ export function addMessageFromString(addition:string,type:string = "user",name:s
     main_status?.context.push(temp_Message);
     return "SUCCESS:执行完成"
 }//这个函数添加一个Message,接口比较完善
+
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const SUPPORTED_FILE_MIME_TYPES: { [key: string]: string } = {
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.bmp': 'image/bmp',
+    '.mp3': 'audio/mpeg',
+    '.wav': 'audio/wav',
+    '.ogg': 'audio/ogg',
+    '.m4a': 'audio/mp4',
+    '.mp4': 'video/mp4',
+    '.avi': 'video/x-msvideo',
+    '.mov': 'video/quicktime',
+    '.mkv': 'video/x-matroska',
+    '.webm': 'video/webm'
+};
+
+type FileToInlineResult = 
+    | { success: true; mimeType: string; data: string }
+    | { success: false; reason: string };
+
+function getMimeTypeFromUrl(url: string): string | null {
+    const urlPath = url.split('?')[0];
+    const ext = path.extname(urlPath).toLowerCase();
+    if (ext && SUPPORTED_FILE_MIME_TYPES[ext]) {
+        return SUPPORTED_FILE_MIME_TYPES[ext];
+    }
+
+    const urlObj = new URL(url);
+    
+    const orgfmt = urlObj.searchParams.get('orgfmt');
+    const format = urlObj.searchParams.get('format');
+    
+    const formatMap: { [key: string]: string } = {
+        't264': 'video/mp4',
+        'mp4': 'video/mp4',
+        'mp3': 'audio/mpeg',
+        'wav': 'audio/wav',
+        'amr': 'audio/amr',
+        'silk': 'audio/silk',
+        'ogg': 'audio/ogg',
+        'm4a': 'audio/mp4',
+        'png': 'image/png',
+        'jpg': 'image/jpeg',
+        'jpeg': 'image/jpeg',
+        'gif': 'image/gif',
+        'webp': 'image/webp'
+    };
+    
+    if (orgfmt && formatMap[orgfmt.toLowerCase()]) {
+        return formatMap[orgfmt.toLowerCase()];
+    }
+    
+    if (format && formatMap[format.toLowerCase()]) {
+        return formatMap[format.toLowerCase()];
+    }
+
+    return null;
+}
+
+async function fileToInlineData(filePathOrUrl: string): Promise<FileToInlineResult> {
+    try {
+        if (filePathOrUrl.startsWith('http://') || filePathOrUrl.startsWith('https://')) {
+            const mimeType = getMimeTypeFromUrl(filePathOrUrl);
+            if (!mimeType) {
+                return { success: false, reason: `文件类型不支持:${filePathOrUrl.substring(0, 50)}...` };
+            }
+
+            const response = await axios.get(filePathOrUrl, {
+                responseType: 'arraybuffer',
+                timeout: 30000,
+                maxContentLength: MAX_FILE_SIZE
+            });
+
+            const size = response.data.byteLength || response.data.length;
+            if (size > MAX_FILE_SIZE) {
+                const sizeMB = (size / 1024 / 1024).toFixed(2);
+                return { success: false, reason: `文件大于10MB(${sizeMB}MB),不支持读取` };
+            }
+
+            const base64 = Buffer.from(response.data).toString('base64');
+            return { success: true, mimeType, data: base64 };
+        }
+
+        const ext = path.extname(filePathOrUrl).toLowerCase();
+        const mimeType = SUPPORTED_FILE_MIME_TYPES[ext];
+        if (!mimeType) {
+            return { success: false, reason: `文件类型不支持:${filePathOrUrl}` };
+        }
+
+        if (!fs.existsSync(filePathOrUrl)) {
+            return { success: false, reason: `文件不存在:${filePathOrUrl}` };
+        }
+
+        const stats = fs.statSync(filePathOrUrl);
+        if (stats.size > MAX_FILE_SIZE) {
+            const sizeMB = (stats.size / 1024 / 1024).toFixed(2);
+            return { success: false, reason: `文件大于10MB(${sizeMB}MB),不支持读取` };
+        }
+
+        const buffer = fs.readFileSync(filePathOrUrl);
+        const base64 = buffer.toString('base64');
+
+        return { success: true, mimeType, data: base64 };
+    } catch (error) {
+        console.error('fileToInlineData 错误:', error);
+        return { success: false, reason: `文件读取错误` };
+    }
+}
+
 export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:number = 2000):Promise<string>
 {
     
@@ -498,7 +612,7 @@ export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:num
             let content_temp:content_unit[] = []
             let last_unit:content_unit|null = null
             
-            main_status.context.map((curr)=>{
+            for(const curr of main_status.context){
                 //检查是否可以和上一条合并（相同role_type）
                 if(last_unit && last_unit.role === curr.role_type) {
                     //合并到同一个content_unit的parts中
@@ -512,6 +626,16 @@ export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:num
                         curr.inline.map((inlineUnit)=>{
                             last_unit!.parts.push({inlineData:{mimeType:inlineUnit.mimeType,data:inlineUnit.data}});
                         })
+                    if(curr.file.length !== 0) {
+                        for(const filePath of curr.file) {
+                            const result = await fileToInlineData(filePath);
+                            if(result.success) {
+                                last_unit!.parts.push({inlineData:{mimeType:result.mimeType,data:result.data}});
+                            } else {
+                                last_unit!.parts.push({text:`[${(result as { success: false; reason: string }).reason}]`});
+                            }
+                        }
+                    }
                     // 处理工具调用（只有 model 类型的消息才有）
                     if(curr.role_type === 'model' && curr.toolsCalls && curr.toolsCalls.length > 0) {
                         curr.toolsCalls.map((toolCall) => {
@@ -550,6 +674,16 @@ export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:num
                         curr.inline.map((inlineUnit)=>{
                             temp_content_unit.parts.push({inlineData:{mimeType:inlineUnit.mimeType,data:inlineUnit.data}});
                         })
+                    if(curr.file.length !== 0) {
+                        for(const filePath of curr.file) {
+                            const result = await fileToInlineData(filePath);
+                            if(result.success) {
+                                temp_content_unit.parts.push({inlineData:{mimeType:result.mimeType,data:result.data}});
+                            } else {
+                                temp_content_unit.parts.push({text:`[${(result as { success: false; reason: string }).reason}]`});
+                            }
+                        }
+                    }
                     // 处理工具调用（只有 model 类型的消息才有）
                     if(curr.role_type === 'model' && curr.toolsCalls && curr.toolsCalls.length > 0) {
                         curr.toolsCalls.map((toolCall) => {
@@ -575,7 +709,7 @@ export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:num
                     content_temp.push(temp_content_unit);
                     last_unit = temp_content_unit;
                 }
-            })
+            }
             //载入完成
             // 从 main.json 读取 tools 配置
             let toolsConfig = [];
@@ -601,7 +735,7 @@ export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:num
             }//发出请求
             //console.log(request.contents[0].parts[0].text)
             const llmSource = readIni(path.join(__dirname,'../../../library_source.ini'),'main_virtual_source');
-            let response;
+            let response: EasyGeminiResponse;
             if (llmSource === 'deepseek') {
                 response = await callDeepSeekTemp(
                     request,
@@ -1033,7 +1167,8 @@ export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:num
                 console.error('process_waiting调用失败:', error);
             });
             return "SUCCESS:回复正常"
-        }catch{
+        }catch(error: any){
+            console.error('sendAll 错误:', error);
             main_virtual_busy = false;
             process_waiting().catch((error: any) => {
                 console.error('process_waiting调用失败:', error);
@@ -1049,6 +1184,7 @@ export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:num
     
     return "ERROR:当前状态不合法"
 }//这个函数发送当前的的上下文状态给模型,并且模型的回复会添加在main_status的上下文里，返回的只是执行状态
+//修改:sendAll会调用
 let final_output_pipe_source_uid = creat_source("main_virtual_final_output", "string")
 //其注册一个source:main_virtual_final_output
 
@@ -1105,17 +1241,41 @@ export function addQueueMessage(send_curr:string,user_name:string,files:string[]
         return "ERROR:添加消息到队列失败"
 }//以用户的身份添加消息到status
 let waiting_message:QueueMessageInput[] = []
-export function autoAddMessage(send_curr:string,user_name:string,files:string[] = [],inlines:inlineData[] = [])
+export function autoAddMessage(pack: standard_message_pack)
 {
     if(main_virtual_busy) {
-        waiting_message.push({send_curr, user_name, files, inlines})
+        for (const item of pack.items) {
+            const formatted_curr = `QQ联系人:${item.user_name}发来了消息：${item.send_curr}`;
+            waiting_message.push({
+                send_curr: formatted_curr,
+                user_name: "system",
+                files: item.files,
+                inlines: item.inlines
+            })
+        }
     } else {
-        addQueueMessage(send_curr, user_name, files, inlines)
+        for (const item of pack.items) {
+            const formatted_curr = `QQ联系人:${item.user_name}发来了消息：${item.send_curr}`;
+            addQueueMessage(formatted_curr, "system", item.files, item.inlines)
+        }
         sendAll().catch((error: any) => {
             console.error('autoAddMessage发送消息失败:', error);
         });
     }
-}
+}//发送一组信息
+export function autoAddDirectlyMessage(pack: standard_message_pack)
+{
+    if(main_virtual_busy) {
+        waiting_message.push(...pack.items)
+    } else {
+        for (const item of pack.items) {
+            addQueueMessage(item.send_curr, item.user_name, item.files, item.inlines)
+        }
+        sendAll().catch((error: any) => {
+            console.error('autoAddMessage发送消息失败:', error);
+        });
+    }
+}//直接发送一组信息，不是QQ什么乱七八糟的
 async function process_waiting()
 {
     if(waiting_message.length === 0) return;

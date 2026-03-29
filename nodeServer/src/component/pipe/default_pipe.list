@@ -1,2 +1,4 @@
 main_qq_messages:main_command_converter_in
-main_command_converter_out:auto_qq_send
+main_command_converter_out:mulcontect_gemini_in
+mulcontect_gemini_out:main_virtual_input
+main_virtual_final_output:example

@@ -1,4 +1,4 @@
-import { QQsendMessage, QQsendImg, QQsendFile } from '../../../utility/QQ/qq';
+import { QQsendMessage, QQsendImg, QQsendAudio, QQsendFile } from '../../../utility/QQ/qq';
 import { multi_contact_multimedia_message, multi_contact_multimedia_message_array, multimedia_message, inlineData } from '../../../types/process/process.type';
 import fs from 'fs';
 import path from 'path';
@@ -46,6 +46,14 @@ async function sendInline(id: string, inline: inlineData, index: number): Promis
     }
 }
 
+async function sendFileByUrl(id: string, fileUrl: string, type: 'audio' | 'video' | 'file'): Promise<string> {
+    if (type === 'audio') {
+        return await QQsendAudio(id, fileUrl);
+    } else {
+        return await QQsendFile(id, fileUrl);
+    }
+}
+
 async function sendMessage(msg: multi_contact_multimedia_message): Promise<void> {
     const { id, name, parts } = msg;
     
@@ -61,6 +69,15 @@ async function sendMessage(msg: multi_contact_multimedia_message): Promise<void>
         } else if (part.type === 'image' && part.inline) {
             const result = await sendInline(id, part.inline, 0);
             console.log(`[auto_qq_send] 图片发送到 ${name}(${id}): ${result}`);
+        } else if (part.type === 'audio' && part.file_url) {
+            const result = await sendFileByUrl(id, part.file_url, 'audio');
+            console.log(`[auto_qq_send] 语音发送到 ${name}(${id}): ${result}`);
+        } else if (part.type === 'video' && part.file_url) {
+            const result = await sendFileByUrl(id, part.file_url, 'video');
+            console.log(`[auto_qq_send] 视频发送到 ${name}(${id}): ${result}`);
+        } else if (part.type === 'file' && part.file_url) {
+            const result = await sendFileByUrl(id, part.file_url, 'file');
+            console.log(`[auto_qq_send] 文件发送到 ${name}(${id}): ${result}`);
         }
     }
 }

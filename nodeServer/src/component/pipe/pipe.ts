@@ -288,7 +288,7 @@ export async function init(){
             console.log("注册了对象："+name+":"+uid)
         }
         
-    }//注册final_output对象
+    }//注册静态的final_output对象
     
     //等待1秒后根据default_pipe.list注册管道
     await new Promise(resolve => setTimeout(resolve, 1000));
@@ -300,6 +300,8 @@ export async function init(){
     }
     //注册converter
     await creat_converter(null,"command_multi_contact_multimedia_message","main_command_converter_in","main_command_converter_out");
+    await creat_converter(null,"mulcontect_gemini_messages","mulcontect_gemini_in","mulcontect_gemini_out");
+    
     const pipe_list_content = fs.readFileSync(pipe_list_path, 'utf-8');
     const pipe_lines = pipe_list_content.split('\n').filter(line => line.trim() !== '');
     for(const line of pipe_lines){

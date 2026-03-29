@@ -105,6 +105,57 @@ function connectEvent(): Promise<string> {
     });
 }
 
+const MAX_DOWNLOAD_SIZE = 10 * 1024 * 1024;
+
+async function downloadToInline(url: string, defaultMimeType: string): Promise<{ mimeType: string; data: string } | null> {
+    try {
+        const response = await axios.get(url, {
+            responseType: 'arraybuffer',
+            timeout: 30000,
+            maxContentLength: MAX_DOWNLOAD_SIZE
+        });
+
+        const size = response.data.byteLength || response.data.length;
+        if (size > MAX_DOWNLOAD_SIZE) {
+            return null;
+        }
+
+        const base64 = Buffer.from(response.data).toString('base64');
+        
+        let mimeType = defaultMimeType;
+        const magic = Buffer.from(response.data.slice(0, 8));
+        
+        if (magic[0] === 0x89 && magic[1] === 0x50) {
+            mimeType = 'image/png';
+        } else if (magic[0] === 0xFF && magic[1] === 0xD8) {
+            mimeType = 'image/jpeg';
+        } else if (magic[0] === 0x47 && magic[1] === 0x49) {
+            mimeType = 'image/gif';
+        } else if (magic[0] === 0x52 && magic[1] === 0x49) {
+            mimeType = 'image/webp';
+        } else if (magic[4] === 0x66 && magic[5] === 0x74 && magic[6] === 0x79 && magic[7] === 0x70) {
+            if (magic[0] === 0x00 || magic[0] === 0x20) {
+                mimeType = 'audio/mp4';
+            } else {
+                mimeType = 'video/mp4';
+            }
+        } else if (magic[0] === 0x1A && magic[1] === 0x45 && magic[2] === 0xDF && magic[3] === 0xA3) {
+            mimeType = 'video/webm';
+        } else if (magic[0] === 0x23 && magic[1] === 0x21 && magic[2] === 0x41 && magic[3] === 0x4D) {
+            mimeType = 'audio/amr';
+        } else if (magic[0] === 0x4F && magic[1] === 0x67 && magic[2] === 0x67 && magic[3] === 0x53) {
+            mimeType = 'audio/ogg';
+        } else if (magic[0] === 0x52 && magic[1] === 0x49 && magic[2] === 0x46 && magic[3] === 0x46) {
+            mimeType = 'audio/wav';
+        }
+
+        return { mimeType, data: base64 };
+    } catch (error) {
+        console.error('下载文件失败:', error);
+        return null;
+    }
+}
+
 async function handleEvent(event: any): Promise<void> {
     if (event.post_type === 'message' && event.message_type === 'private') {
         const qq_num = String(event.user_id);
@@ -128,8 +179,7 @@ async function handleEvent(event: any): Promise<void> {
                         try {
                             const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
                             
-                            // 检查图片大小（限制 5MB）
-                            const maxSize = 5 * 1024 * 1024; // 5MB
+                            const maxSize = 5 * 1024 * 1024;
                             if (response.data.length > maxSize) {
                                 console.error('图片太大:', response.data.length, 'bytes');
                                 parts.push({
@@ -141,7 +191,6 @@ async function handleEvent(event: any): Promise<void> {
                             
                             const base64 = Buffer.from(response.data, 'binary').toString('base64');
                             
-                            // 检测 MIME 类型
                             let mimeType = 'image/jpeg';
                             const magic = Buffer.from(response.data.slice(0, 4));
                             if (magic[0] === 0x89 && magic[1] === 0x50) {
@@ -167,6 +216,89 @@ async function handleEvent(event: any): Promise<void> {
                                 content: '[图片下载失败]'
                             });
                         }
+                    }
+                } else if (seg.type === 'record') {
+                    const audioUrl = seg.data?.url;
+                    if (audioUrl) {
+                        const inlineData = await downloadToInline(audioUrl, 'audio/amr');
+                        if (inlineData) {
+                            parts.push({
+                                type: 'audio',
+                                content: '[语音]',
+                                inline: inlineData
+                            });
+                        } else {
+                            parts.push({
+                                type: 'audio',
+                                content: '[语音下载失败]',
+                                file_url: ''
+                            });
+                        }
+                    }
+                } else if (seg.type === 'video') {
+                    const videoUrl = seg.data?.url || seg.data?.file;
+                    if (videoUrl) {
+                        const inlineData = await downloadToInline(videoUrl, 'video/mp4');
+                        if (inlineData) {
+                            parts.push({
+                                type: 'video',
+                                content: '[视频]',
+                                inline: inlineData
+                            });
+                        } else {
+                            parts.push({
+                                type: 'video',
+                                content: '[视频下载失败或超过10MB]',
+                                file_url: ''
+                            });
+                        }
+                    }
+                } else if (seg.type === 'file') {
+                    const fileId = seg.data?.file_id;
+                    const fileName = seg.data?.name || seg.data?.file || '[文件]';
+                    
+                    if (fileId) {
+                        try {
+                            const fileResponse = await sendApiRequest('get_file', {
+                                file_id: fileId
+                            });
+                            
+                            if (fileResponse.status === 'ok' && fileResponse.data?.url) {
+                                const inlineData = await downloadToInline(fileResponse.data.url, 'application/octet-stream');
+                                if (inlineData) {
+                                    parts.push({
+                                        type: 'file',
+                                        content: fileName,
+                                        inline: inlineData
+                                    });
+                                } else {
+                                    parts.push({
+                                        type: 'file',
+                                        content: `[文件:${fileName} 下载失败或超过10MB]`,
+                                        file_url: ''
+                                    });
+                                }
+                            } else {
+                                parts.push({
+                                    type: 'file',
+                                    content: `[文件:${fileName} 获取链接失败]`,
+                                    file_url: ''
+                                });
+                            }
+                        } catch (error) {
+                            console.error('[file消息] get_file API 调用失败:', error);
+                            parts.push({
+                                type: 'file',
+                                content: `[文件:${fileName} API调用失败]`,
+                                file_url: ''
+                            });
+                        }
+                    } else {
+                        parts.push({
+                            type: 'file',
+                            content: `[文件:${fileName}]`,
+                            file_url: ''
+                        });
                     }
                 }
             }

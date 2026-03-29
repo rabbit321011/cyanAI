@@ -163,6 +163,13 @@ class ErrorClassifier {
                         shouldRetry: false
                     };
                 }
+                if (this.retryableCodes.includes(type)) {
+                    return {
+                        action: 'retry',
+                        message: `Error message contains: ${keyword}`,
+                        shouldRetry: true
+                    };
+                }
             }
         }
 
@@ -185,7 +192,7 @@ class ErrorClassifier {
         }
 
         // 7. 可重试的网络错误
-        const retryableNetworkErrors = ['ECONNREFUSED', 'ENOTFOUND'];
+        const retryableNetworkErrors = ['ECONNREFUSED', 'ENOTFOUND', 'ECONNRESET'];
         if (retryableNetworkErrors.includes(error?.code) || errorMessage.includes('socket hang up')) {
             return {
                 action: 'retry',
