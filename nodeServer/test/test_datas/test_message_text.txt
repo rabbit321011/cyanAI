@@ -1,1 +1,0 @@
- message1@br%[E:\MyProject\cyanAI\VUE\img\test_icon.png]@brmessage2

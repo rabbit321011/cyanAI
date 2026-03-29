@@ -1,1 +1,0 @@
-{"memory_state":{"R":1,"S":10,"last_T_distance":"10day","D":0,"a":0},"current":"用户引导我测试了 `any-example` 工具的两种模式。首先使用 `wait_mode: true`（阻塞模式）进行了测试，工具返回了详细的成功结果；随后使用 `wait_mode: false`（非阻塞模式）进行了再次测试。最终用户确认两种模式下的功能均一切正常。这是一次顺利的功能验证。","extraCurrent":{"Im":1.2},"TIMESET":"20260226_201158"}
