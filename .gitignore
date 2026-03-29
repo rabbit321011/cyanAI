@@ -1,6 +1,10 @@
 node_modules/
 VUE/dist/
 VUE/node_modules/
+VUE/temp/
+VUE/test_file/
+VUE/test_sample/
+.vscode/
 nodeServer/node_modules/
 nodeServer/library_source.ini
 nodeServer/src/utility/QQ/参考文档/
