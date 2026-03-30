@@ -75,3 +75,38 @@ export interface multi_contact_multimedia_message{
 export interface multi_contact_multimedia_message_array{
     messages:multi_contact_multimedia_message[];
 }//多联系人多媒体消息数组格式
+export interface policy_group{
+    mode:string; //运行模式，控制数据流向
+    // 可选值: memory_less(不保存记忆), chat(空壳子), tiny(基础模式), lite(性能优化), multi_status(多状态), normal(正常模式), thinking(思考模式)
+    temperature:number; //生成文本的温度参数
+    monologue:boolean; //是否开启独白模式
+    monologue_summary_turn:number; //独白总结触发轮次，默认为6
+    monologue_summary_turn_precision:number; //独白总结精度，表示每多少轮触发一次总结，默认为3
+    summary_turn:number; //总结触发轮次，默认为30
+    summary_turn_time:string; //总结触发时间，单位如10min
+    summary_turn_precision:number; //总结精度，表示每多少轮触发一次总结，默认为20
+    image_max:number; //图片保留数量，超过则总结
+    video_max:number; //视频保留数量，超过则总结
+    audio_max:number; //音频保留数量，超过则总结
+    multimedia_max:number; //多媒体总保留数量，超过则总结
+    tools_files:string[]; //启用的工具索引JSON文件数组
+    talk_commands:string[]; //可用的talk命令数组，需要在tools_files中定义
+    talk_description_file:string; //talk命令描述文件路径，会拼接到系统提示词
+    direct_tools:string[]; //直接载入的工具数组
+    auto_rag_topk:number; //自动RAG检索返回的数量，-1检索所有，0不开启
+    auto_reranker_mode:string; //自动重排模式，可选"qwen"或"bge"
+    auto_emerge_rate:number; //自动涌现阈值倍率
+    auto_emerge_frequency:number; //自动检索频率，单位为rethink
+    workspace:boolean; //是否开启工作区功能
+    pull_info:boolean; //是否开启拉取信息功能
+    step_progress:boolean; //是否开启步进计划功能
+    change_policy_group:string[]; //允许切换到的策略组名称数组
+    system_prompt_generator:string; //系统提示词生成器文件路径，用于生成系统提示词
+    max_events:number; //检索事件的最大数量，默认为100
+    events_threshold:number; //事件检索阈值，低于此值的事件不会被检索
+    events_Tw_normalization_factor:number; //事件Tw归一化因子，默认为0，最大为1
+    dynamic_pipe_node:string; //动态管道节点文件路径，用于自定义输入输出转换
+    max_token:number; //最大输出token数
+    model:string; //模型名称
+    model_type:string; //模型类型，如gemini、deepseek等
+}//策略组文件
