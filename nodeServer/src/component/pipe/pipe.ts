@@ -125,6 +125,20 @@ export async function creat_output(runtime_data:any,output_type:string):Promise<
 }
 export async function input_for_uid(uid:string,data:any,type:string):Promise<void>
 {
+    //从sources里检索 - 检查是否是source的uid
+    const source = sources.find(s => s.uid === uid);
+    if(source){
+        //找到以这个source作为起点的所有管道
+        const pipes_from_source = pipes.filter(p => p.input_uid === uid);
+        for(const pipe of pipes_from_source){
+            await input_for_uid(pipe.output_uid, data, type);
+        }
+        if(pipes_from_source.length === 0){
+            console.warn(`source ${uid} 没有连接的管道`);
+        }
+        return;
+    }
+
     //从converters里检索 - 检查input_uid
     const converter = converters.find(c => c.input_uid === uid);
     if(converter){
@@ -202,21 +216,25 @@ export function creat_pipe(uid_in:string,uid_out:string):string//返回执行结
     //自动将name转换为uid
     const uid_in_resolved = find_name_uid(uid_in) || uid_in;
     const uid_out_resolved = find_name_uid(uid_out) || uid_out;
-    
-    //检查uid_in在converters的输出uid 或 sources 内
+
+    //获取所有converter的输入和输出uid，以及final_outputs和sources
+    const temp_test_converter_input_uids = converters.map(c => c.input_uid);
     const temp_test_converter_output_uids = converters.map(c => c.output_uid);
     const temp_test_source_uids = sources.map(s => s.uid);
+    const temp_test_final_output_uids = final_outputs.map(f => f.interface_uid);
+
+    //检查uid_in在converters的输出uid 或 sources 内（输入端可以是converter的输出或source）
     const temp_test_valid_input_uids = [...temp_test_converter_output_uids, ...temp_test_source_uids];
     if(!temp_test_valid_input_uids.includes(uid_in_resolved))
     {
+        console.error(`creat_pipe: uid_in=${uid_in}(${uid_in_resolved}) 无效，输入端必须是converter的output_uid或source，当前valid_input_uids:`, temp_test_valid_input_uids);
         return "ERROR:无效的输入uid"
     }
-    //检查uid_out是否为converters的输入或final_outputs的interface_uid
-    const temp_test_converter_input_uids = converters.map(c => c.input_uid);
-    const temp_test_final_output_uids = final_outputs.map(f => f.interface_uid);
+    //检查uid_out是否为converters的输入或final_outputs的interface_uid（输出端可以是converter的输入或final_output）
     const temp_test_valid_output_uids = [...temp_test_converter_input_uids, ...temp_test_final_output_uids];
     if(!temp_test_valid_output_uids.includes(uid_out_resolved))
     {
+        console.error(`creat_pipe: uid_out=${uid_out}(${uid_out_resolved}) 无效，输出端必须是converter的input_uid或final_output，当前valid_output_uids:`, temp_test_valid_output_uids);
         return "ERROR:无效的输出uid"
     }
     //检查输入和输出的type是否一样
@@ -288,7 +306,7 @@ export async function init(){
             console.log("注册了对象："+name+":"+uid)
         }
         
-    }//注册静态的final_output对象
+    }//注册所有静态的final_output对象
     
     //等待1秒后根据default_pipe.list注册管道
     await new Promise(resolve => setTimeout(resolve, 1000));
@@ -511,4 +529,43 @@ export function list_all_components(): AllComponentsInfo
         converters: convertersInfo,
         final_outputs: finalOutputsInfo
     };
+}
+export function clear_pipes_converter():void{
+    //读取静态output列表（从 status_output.list）
+    const list_path = path.join(__dirname, 'status_output.list');
+    const staticOutputNames = new Set<string>();
+    if(fs.existsSync(list_path)){
+        const list_content = fs.readFileSync(list_path, 'utf-8');
+        const lines = list_content.split('\n').filter(line => line.trim() !== '');
+        for(const line of lines){
+            const name = line.trim().replace(/\.ts$/, '');
+            staticOutputNames.add(name);
+        }
+    }
+
+    //收集需要清除的uid
+    const uidsToRemove = new Set<string>();
+
+    //清除converter的别名（input和output的名字）
+    for(const conv of converters){
+        uidsToRemove.add(conv.input_uid);
+        uidsToRemove.add(conv.output_uid);
+    }
+
+    //标记动态output的uid需要清除（不在静态列表中的final_output）
+    for(const output of final_outputs){
+        const pair = uidWithName_pairs.find(p => p.uid === output.interface_uid);
+        if(pair && !staticOutputNames.has(pair.name)){
+            uidsToRemove.add(output.interface_uid);
+        }
+    }
+
+    //清除这些uid对应的别名
+    uidWithName_pairs = uidWithName_pairs.filter(pair => !uidsToRemove.has(pair.uid));
+
+    //清除动态创建的final_outputs
+    final_outputs = final_outputs.filter(output => !uidsToRemove.has(output.interface_uid));
+
+    pipes = [];
+    converters = [];
 }

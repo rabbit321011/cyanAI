@@ -191,9 +191,8 @@ class ErrorClassifier {
             };
         }
 
-        // 7. 可重试的网络错误
-        const retryableNetworkErrors = ['ECONNREFUSED', 'ENOTFOUND', 'ECONNRESET'];
-        if (retryableNetworkErrors.includes(error?.code) || errorMessage.includes('socket hang up')) {
+        // 7. 可重试的错误码（从 ini 读取）
+        if (this.retryableCodes.includes(error?.code) || errorMessage.includes('socket hang up')) {
             return {
                 action: 'retry',
                 message: error?.code ? `Network error: ${error.code}` : 'Socket hang up',

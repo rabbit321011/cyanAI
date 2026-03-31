@@ -2,6 +2,7 @@
 // #region imports
 import {inlineData,functionCall,functionResponse,Message,MemoryState,LinesP,EventOutputItem,QueueMessageInput,standard_message_pack, policy_group} from '../../types/process/process.type'
 import {readIni} from '../../utility/file_operation/read_ini'
+import {clear_pipes_converter} from '../pipe/pipe'
 import {loadInitialEvents} from '../events/event_loader'
 import {now, sub, compare} from '../../utility/time/cyan_time'
 import fs from 'fs';
@@ -20,6 +21,7 @@ import {
     creat_pipe,        // 连接管道
     input_for_uid      // 向管道输入数据
 } from '../pipe/pipe';
+import { readPolicyGroup,writePolicyGroup } from '../../utility/file_operation/policy_file_operation';
 // #endregion
 // #region interface
 export interface workspace_ent{
@@ -594,610 +596,28 @@ async function fileToInlineData(filePathOrUrl: string): Promise<FileToInlineResu
 
 export async function sendAll(INtemperature:number = 0.7 , INmaxOutputTokens:number = 2000):Promise<string>
 {
-    
+    //检测模式，然后执行
     main_virtual_busy = true;
-    if(verify_context() && verify_chatable() && main_status)
-    {
-        try{
-            // 先处理图片总结
-            await processImageSummaries('10min', 7, 0);
-            
-            //先生成系统部分的提示词
-            let system_temp_prompt = "";
-            system_temp_prompt += main_status.system.main_prompt + "\n";
-            system_temp_prompt += main_status.system.character_reference + "\n";
-            system_temp_prompt += "^system 以下是你可以记起来的事(事件区):\n" + main_status.system.events  + "\n";
-            system_temp_prompt += "^system 以下是你的工作区: \n" 
-            main_status.system.workspace.map((curr)=>{
-                system_temp_prompt += curr.index + ":" + curr.current + "\n";
-            })
-
-            system_temp_prompt += "^system 以下是在对话中涉及到的对象的信息(对象区) \n"
-            //main_status.system.object_network
-            //对象的重排序有点复杂，先不搞
-            system_temp_prompt += "^system 以下是拉取到的信息: \n"
-            main_status.system.pulled_info.map((curr)=>{
-                system_temp_prompt += curr.index + ":" + curr.current + "\n"
-            })
-            system_temp_prompt += "^system 以下是你的计划链表: \n"
-            main_status.system.step_progress.map((curr)=>{
-                system_temp_prompt += curr.index + ":"  + curr.status + ":" + curr.current +"\n";
-            })
-            //系统提示词生成完成，载入对话记录
-            let content_temp:content_unit[] = []
-            let last_unit:content_unit|null = null
-            
-            for(const curr of main_status.context){
-                //检查是否可以和上一条合并（相同role_type）
-                if(last_unit && last_unit.role === curr.role_type) {
-                    //合并到同一个content_unit的parts中
-                    if(curr.current !== "")
-                    {   
-                        let temp_text = "";
-                        temp_text += '^' + curr.role + ':' + curr.time + ':' + curr.current;
-                        last_unit.parts.push({text:temp_text});
-                    }
-                    if(curr.inline.length !== 0)
-                        curr.inline.map((inlineUnit)=>{
-                            last_unit!.parts.push({inlineData:{mimeType:inlineUnit.mimeType,data:inlineUnit.data}});
-                        })
-                    if(curr.file.length !== 0) {
-                        for(const filePath of curr.file) {
-                            const result = await fileToInlineData(filePath);
-                            if(result.success) {
-                                last_unit!.parts.push({inlineData:{mimeType:result.mimeType,data:result.data}});
-                            } else {
-                                last_unit!.parts.push({text:`[${(result as { success: false; reason: string }).reason}]`});
-                            }
-                        }
-                    }
-                    // 处理工具调用（只有 model 类型的消息才有）
-                    if(curr.role_type === 'model' && curr.toolsCalls && curr.toolsCalls.length > 0) {
-                        curr.toolsCalls.map((toolCall) => {
-                            const part: any = {
-                                functionCall: {
-                                    name: `default_api:${toolCall.name}`,
-                                    args: toolCall.args
-                                }
-                            };
-                            if(toolCall.thoughtSignature) {
-                                part.thoughtSignature = toolCall.thoughtSignature;
-                            }
-                            last_unit!.parts.push(part);
-                        });
-                    }
-                    // 处理工具响应（只有 user 类型的消息才有）
-                    if(curr.role_type === 'user' && curr.toolsResponse && curr.toolsResponse.length > 0) {
-                        curr.toolsResponse.map((toolResponse) => {
-                            last_unit!.parts.push({functionResponse: {name: toolResponse.name, response: toolResponse.response}});
-                        });
-                    }
-                } else {
-                    //创建新的content_unit
-                    let temp_content_unit:content_unit = {
-                        role:curr.role_type,
-                        parts:[]
-                    }
-
-                    if(curr.current !== "")
-                    {   
-                        let temp_text = "";
-                        temp_text += '^' + curr.role + ':' + curr.time + ':' + curr.current;
-                        temp_content_unit.parts.push({text:temp_text});
-                    }
-                    if(curr.inline.length !== 0)
-                        curr.inline.map((inlineUnit)=>{
-                            temp_content_unit.parts.push({inlineData:{mimeType:inlineUnit.mimeType,data:inlineUnit.data}});
-                        })
-                    if(curr.file.length !== 0) {
-                        for(const filePath of curr.file) {
-                            const result = await fileToInlineData(filePath);
-                            if(result.success) {
-                                temp_content_unit.parts.push({inlineData:{mimeType:result.mimeType,data:result.data}});
-                            } else {
-                                temp_content_unit.parts.push({text:`[${(result as { success: false; reason: string }).reason}]`});
-                            }
-                        }
-                    }
-                    // 处理工具调用（只有 model 类型的消息才有）
-                    if(curr.role_type === 'model' && curr.toolsCalls && curr.toolsCalls.length > 0) {
-                        curr.toolsCalls.map((toolCall) => {
-                            const part: any = {
-                                functionCall: {
-                                    name: `default_api:${toolCall.name}`,
-                                    args: toolCall.args
-                                }
-                            };
-                            if(toolCall.thoughtSignature) {
-                                part.thoughtSignature = toolCall.thoughtSignature;
-                            }
-                            temp_content_unit.parts.push(part);
-                        });
-                    }
-                    // 处理工具响应（只有 user 类型的消息才有）
-                    if(curr.role_type === 'user' && curr.toolsResponse && curr.toolsResponse.length > 0) {
-                        curr.toolsResponse.map((toolResponse) => {
-                            temp_content_unit.parts.push({functionResponse: {name: toolResponse.name, response: toolResponse.response}});
-                        });
-                    }
-                    
-                    content_temp.push(temp_content_unit);
-                    last_unit = temp_content_unit;
-                }
-            }
-            //载入完成
-            // 从 main.json 读取 tools 配置
-            let toolsConfig = [];
-            try {
-                const toolsPath = path.join(__dirname, '../erogenous_zone/main_virtual/main.json');
-                if (fs.existsSync(toolsPath)) {
-                    const toolsContent = fs.readFileSync(toolsPath, 'utf-8');
-                    toolsConfig = JSON.parse(toolsContent);
-                }
-            } catch (error) {
-                console.error('读取 tools 配置失败:', error);
-                toolsConfig = [];
-            }
-            
-            const request:EasyGeminiRequest = {
-                systemInstruction : system_temp_prompt,
-                contents : content_temp,
-                generationConfig:{
-                    temperature:INtemperature,
-                    maxOutputTokens:INmaxOutputTokens
-                },
-                tools: toolsConfig
-            }//发出请求
-            //console.log(request.contents[0].parts[0].text)
-            const llmSource = readIni(path.join(__dirname,'../../../library_source.ini'),'main_virtual_source');
-            let response: EasyGeminiResponse;
-            if (llmSource === 'deepseek') {
-                response = await callDeepSeekTemp(
-                    request,
-                    readIni(path.join(__dirname,'../../../library_source.ini'),'deepseek_api_sky'),
-                    "deepseek-chat",
-                    "https://api.deepseek.com"
-                );
-            } else {
-                response = await callGoogleLLM(
-                    request,
-                    readIni(path.join(__dirname,'../../../library_source.ini'),'google_api_key'),
-                    "gemini-3-pro-preview",
-                    readIni(path.join(__dirname,'../../../library_source.ini'),'google_base_url')
-                );
-            }//调用LLM模型
-            /*
-1. gemini-3.1-pro-preview - 最新的 Pro 版本预览，功能最全面
-2. gemini-3-pro-preview - 当前代码中使用的模型，性能和功能都很强大
-3. gemini-3-flash-preview - 最新的 Flash 版本，响应速度更快
-### 稳定版本模型
-1. gemini-2.5-pro - 稳定的 Pro 版本，平衡了性能和功能
-2. gemini-2.5-flash - 稳定的轻量版本，响应速度快
-3. gemini-2.0-flash - 较早的轻量版本，适合简单任务
-### 其他特殊模型
-             */
-            // 检查是否有函数调用
-            // 如果第一次请求返回空内容，进行重试和API切换
-            let initialRetryCount = 0;
-            const initialMaxRetries = 3;
-            let currentKey = getApiKeyManager().getCurrentKey();
-            
-            while (!response.text && (!response.functionCalls || response.functionCalls.length === 0)) {
-                initialRetryCount++;
-                
-                if (initialRetryCount <= initialMaxRetries) {
-                    console.log(`⚠️ 第一次请求返回空内容，正在重新请求... (第 ${initialRetryCount} 次重试)`);
-                } else {
-                    // 重试3次后切换API
-                    console.log(`⚠️ 重试 ${initialMaxRetries} 次后仍返回空内容，尝试切换 API 源...`);
-                    const nextKey = getApiKeyManager().switchToNextKey();
-                    
-                    if (!nextKey) {
-                        console.error('❌ 所有 API 源都已尝试，无法获取有效响应');
-                        throw new Error('所有 API 源都返回空内容，请检查服务状态');
-                    }
-                    
-                    currentKey = nextKey;
-                    console.log(`🔄 已切换到 API key ${currentKey?.priority}`);
-                    initialRetryCount = 1; // 重置重试计数
-                }
-                
-                if (llmSource === 'deepseek') {
-                    response = await callDeepSeekTemp(
-                        request,
-                        readIni(path.join(__dirname,'../../../library_source.ini'),'deepseek_api_sky'),
-                        "deepseek-chat",
-                        "https://api.deepseek.com"
-                    );
-                } else {
-                    response = await callGoogleLLM(
-                        request,
-                        currentKey?.key || readIni(path.join(__dirname,'../../../library_source.ini'),'google_api_key'),
-                        "gemini-3-pro-preview",
-                        currentKey?.baseUrl || readIni(path.join(__dirname,'../../../library_source.ini'),'google_base_url')
-                    );
-                }
-            }//失败的重试逻辑
-            
-            // 处理 function calls 的循环，直到模型返回文本
-            let functionCallLoopCount = 0;
-            const maxFunctionCallLoops = 15; // 防止无限循环
-            let thoughtSignatureRetryCount = 0;
-            const maxThoughtSignatureRetries = 3;
-            
-            while (response.functionCalls && response.functionCalls.length > 0 && functionCallLoopCount < maxFunctionCallLoops) {
-                functionCallLoopCount++;
-                console.log(`🔄 处理第 ${functionCallLoopCount} 轮 function calls`);
-                
-                // 检查所有 functionCall 是否都有 thoughtSignature
-                const missingSignatureCall = response.functionCalls.find(fc => !fc.thoughtSignature);
-                if (missingSignatureCall) {
-                    thoughtSignatureRetryCount++;
-                    if (thoughtSignatureRetryCount > maxThoughtSignatureRetries) {
-                        const errorMsg = `错误：函数调用 ${missingSignatureCall.name} 缺少 thoughtSignature 字段，已重试 ${maxThoughtSignatureRetries} 次`;
-                        console.log('❌', errorMsg);
-                        throw new Error(errorMsg);
-                    }
-                    console.log(`⚠️ thoughtSignature 缺失，重新请求... (第 ${thoughtSignatureRetryCount} 次重试)`);
-                    
-                    // 重新请求 LLM
-                    if (llmSource === 'deepseek') {
-                        response = await callDeepSeekTemp(
-                            request,
-                            readIni(path.join(__dirname, '../../../library_source.ini'), 'deepseek_api_sky'),
-                            now_policy.model,
-                            "https://api.deepseek.com"
-                        );
-                    } else {
-                        response = await callGoogleLLM(
-                            request,
-                            currentKey?.key || readIni(path.join(__dirname, '../../../library_source.ini'), 'google_api_key'),
-                            now_policy.model,
-                            currentKey?.baseUrl || readIni(path.join(__dirname, '../../../library_source.ini'), 'google_base_url')
-                        );
-                    }
-                    continue;
-                }
-                
-                // 重置计数器（成功获取到 thoughtSignature）
-                thoughtSignatureRetryCount = 0;
-                
-                // 为每个函数调用生成响应
-                for (const functionCall of response.functionCalls) {
-
-                    // 记录函数调用（由 model 发出）
-                    const functionCallMessage: Message = {
-                        current: '',
-                        role_type: 'model',
-                        role: 'cyanAI',
-                        time: now(),
-                        file: [],
-                        inline: [],
-                        toolsCalls: [{
-                            name: functionCall.name.replace('default_api:', ''),
-                            args: functionCall.args,
-                            thoughtSignature: functionCall.thoughtSignature
-                        }],
-                        toolsResponse: []
-                    };
-                    main_status?.context.push(functionCallMessage);
-                    // 调用工具
-                    let toolResult = `成功调用了功能：${functionCall.name}`;
-                    try {
-                        // 从 args 中获取 requirement_text
-                        const requirementText = functionCall.args?.requirement_text || functionCall.args?.text || JSON.stringify(functionCall.args);
-                        const toolName = functionCall.name.replace('default_api:', '');
-                        console.log(`调用工具 ${toolName}，参数：`, functionCall.args);
-                        // 从 args 中获取 wait_mode，默认为 true
-                        const waitMode = functionCall.args?.wait_mode ?? true;
-                        // 调用 tool_process.ts 执行工具
-                        toolResult = await excuteTool(toolName, requirementText, waitMode);
-                        console.log(`工具 ${toolName} 执行结果：`, toolResult);
-                    } catch (error: any) {
-                        console.error(`工具调用失败：`, error);
-                        toolResult = `工具调用失败：${error.message || '未知错误'}`;
-                    }
-                    // 生成成功响应（由 user 发出）
-                    const functionResponseMessage: Message = {
-                        current: '',
-                        role_type: 'user',
-                        role: 'system',
-                        time: now(),
-                        file: [],
-                        inline: [],
-                        toolsCalls: [],
-                        toolsResponse: [{
-                            name: functionCall.name,
-                            response: {
-                                result: toolResult
-                            }
-                        }]
-                    };
-                    main_status?.context.push(functionResponseMessage);
-                }
-                
-                // 重新发送请求继续对话
-                const retryRequest: EasyGeminiRequest = {
-                    systemInstruction: system_temp_prompt,
-                    contents: content_temp,
-                    generationConfig: {
-                        temperature: INtemperature,
-                        maxOutputTokens: INmaxOutputTokens
-                    },
-                    tools: toolsConfig
-                };
-                
-                // 重新构建内容，包含函数调用和响应
-                // 使用与初始构建相同的合并逻辑
-                const retryContent: content_unit[] = [];
-                let last_retry_unit: content_unit | null = null;
-                
-                main_status?.context.map((curr) => {
-                    // 检查是否可以和上一条合并（相同role_type）
-                    if (last_retry_unit && last_retry_unit.role === curr.role_type) {
-                        // 合并到同一个content_unit的parts中
-                        if (curr.current !== "") {
-                            const temp_text = '^' + curr.role + ':' + curr.time + ':' + curr.current;
-                            last_retry_unit.parts.push({ text: temp_text });
-                        }
-                        
-                        if (curr.inline.length !== 0) {
-                            curr.inline.map((inlineUnit) => {
-                                last_retry_unit!.parts.push({ inlineData: { mimeType: inlineUnit.mimeType, data: inlineUnit.data } });
-                            });
-                        }
-                        
-                        // 处理工具调用（只有 model 类型的消息才有）
-                        if (curr.role_type === 'model' && curr.toolsCalls && curr.toolsCalls.length > 0) {
-                            curr.toolsCalls.map((toolCall) => {
-                                const part: any = {
-                                    functionCall: {
-                                        name: `default_api:${toolCall.name}`,
-                                        args: toolCall.args
-                                    }
-                                };
-                                if (toolCall.thoughtSignature) {
-                                    part.thoughtSignature = toolCall.thoughtSignature;
-                                }
-                                last_retry_unit!.parts.push(part);
-                            });
-                        }
-                        
-                        // 处理工具响应（只有 user 类型的消息才有）
-                        if (curr.role_type === 'user' && curr.toolsResponse && curr.toolsResponse.length > 0) {
-                            curr.toolsResponse.map((toolResponse) => {
-                                last_retry_unit!.parts.push({ functionResponse: { name: toolResponse.name, response: toolResponse.response } });
-                            });
-                        }
-                    } else {
-                        // 创建新的content_unit
-                        const temp_unit: content_unit = {
-                            role: curr.role_type,
-                            parts: []
-                        };
-                        
-                        if (curr.current !== "") {
-                            const temp_text = '^' + curr.role + ':' + curr.time + ':' + curr.current;
-                            temp_unit.parts.push({ text: temp_text });
-                        }
-                        
-                        if (curr.inline.length !== 0) {
-                            curr.inline.map((inlineUnit) => {
-                                temp_unit.parts.push({ inlineData: { mimeType: inlineUnit.mimeType, data: inlineUnit.data } });
-                            });
-                        }
-                        
-                        // 处理工具调用（只有 model 类型的消息才有）
-                        if (curr.role_type === 'model' && curr.toolsCalls && curr.toolsCalls.length > 0) {
-                            curr.toolsCalls.map((toolCall) => {
-                                const part: any = {
-                                    functionCall: {
-                                        name: `default_api:${toolCall.name}`,
-                                        args: toolCall.args
-                                    }
-                                };
-                                if (toolCall.thoughtSignature) {
-                                    part.thoughtSignature = toolCall.thoughtSignature;
-                                }
-                                temp_unit.parts.push(part);
-                            });
-                        }
-                        
-                        // 处理工具响应（只有 user 类型的消息才有）
-                        if (curr.role_type === 'user' && curr.toolsResponse && curr.toolsResponse.length > 0) {
-                            curr.toolsResponse.map((toolResponse) => {
-                                temp_unit.parts.push({ functionResponse: { name: toolResponse.name, response: toolResponse.response } });
-                            });
-                        }
-                        
-                        retryContent.push(temp_unit);
-                        last_retry_unit = temp_unit;
-                    }
-                });//构造上下文
-                
-                retryRequest.contents = retryContent;
-                
-                if (llmSource === 'deepseek') {
-                    response = await callDeepSeekTemp(
-                        retryRequest,
-                        readIni(path.join(__dirname, '../../../library_source.ini'), 'deepseek_api_sky'),
-                        now_policy.model,
-                        "https://api.deepseek.com"
-                    );
-                } else {
-                    response = await callGoogleLLM(
-                        retryRequest,
-                        readIni(path.join(__dirname, '../../../library_source.ini'), 'google_api_key'),
-                        now_policy.model,
-                        readIni(path.join(__dirname, '../../../library_source.ini'), 'google_base_url')
-                    );
-                }//发送请求
-                
-                // 如果返回空内容，继续重新请求（重试+切换API）
-                let retryCount = 0;
-                const maxRetries = 3;
-                let retryKey = currentKey; // 使用当前key
-                
-                while (!response.text && (!response.functionCalls || response.functionCalls.length === 0)) {
-                    retryCount++;
-                    
-                    if (retryCount <= maxRetries) {
-                        console.log(`⚠️ 模型返回空内容，正在重新请求... (第 ${retryCount} 次重试)`);
-                    } else {
-                        // 重试3次后切换API
-                        console.log(`⚠️ 重试 ${maxRetries} 次后仍返回空内容，尝试切换 API 源...`);
-                        const nextKey = getApiKeyManager().switchToNextKey();
-                        
-                        if (!nextKey) {
-                            console.error('❌ 所有 API 源都已尝试，无法获取有效响应');
-                            throw new Error('所有 API 源都返回空内容，请检查服务状态');
-                        }
-                        
-                        retryKey = nextKey;
-                        console.log(`🔄 已切换到 API key ${retryKey?.priority}`);
-                        retryCount = 1; // 重置重试计数
-                    }
-                    
-                    // 重新构建内容
-                    const retryContent2: content_unit[] = [];
-                    let last_retry_unit2: content_unit | null = null;
-                    
-                    main_status?.context.map((curr) => {
-                        if (last_retry_unit2 && last_retry_unit2.role === curr.role_type) {
-                            if (curr.current !== "") {
-                                const temp_text = '^' + curr.role + ':' + curr.time + ':' + curr.current;
-                                last_retry_unit2.parts.push({ text: temp_text });
-                            }
-                            if (curr.inline.length !== 0) {
-                                curr.inline.map((inlineUnit) => {
-                                    last_retry_unit2!.parts.push({ inlineData: { mimeType: inlineUnit.mimeType, data: inlineUnit.data } });
-                                });
-                            }
-                            if (curr.role_type === 'model' && curr.toolsCalls && curr.toolsCalls.length > 0) {
-                                curr.toolsCalls.map((toolCall) => {
-                                    const part: any = {
-                                        functionCall: {
-                                            name: `default_api:${toolCall.name}`,
-                                            args: toolCall.args
-                                        }
-                                    };
-                                    if (toolCall.thoughtSignature) {
-                                        part.thoughtSignature = toolCall.thoughtSignature;
-                                    }
-                                    last_retry_unit2!.parts.push(part);
-                                });
-                            }
-                            if (curr.role_type === 'user' && curr.toolsResponse && curr.toolsResponse.length > 0) {
-                                curr.toolsResponse.map((toolResponse) => {
-                                    last_retry_unit2!.parts.push({ functionResponse: { name: toolResponse.name, response: toolResponse.response } });
-                                });
-                            }
-                        } else {
-                            const temp_unit: content_unit = {
-                                role: curr.role_type,
-                                parts: []
-                            };
-                            if (curr.current !== "") {
-                                const temp_text = '^' + curr.role + ':' + curr.time + ':' + curr.current;
-                                temp_unit.parts.push({ text: temp_text });
-                            }
-                            if (curr.inline.length !== 0) {
-                                curr.inline.map((inlineUnit) => {
-                                    temp_unit.parts.push({ inlineData: { mimeType: inlineUnit.mimeType, data: inlineUnit.data } });
-                                });
-                            }
-                            if (curr.role_type === 'model' && curr.toolsCalls && curr.toolsCalls.length > 0) {
-                                curr.toolsCalls.map((toolCall) => {
-                                    const part: any = {
-                                        functionCall: {
-                                            name: `default_api:${toolCall.name}`,
-                                            args: toolCall.args
-                                        }
-                                    };
-                                    if (toolCall.thoughtSignature) {
-                                        part.thoughtSignature = toolCall.thoughtSignature;
-                                    }
-                                    temp_unit.parts.push(part);
-                                });
-                            }
-                            if (curr.role_type === 'user' && curr.toolsResponse && curr.toolsResponse.length > 0) {
-                                curr.toolsResponse.map((toolResponse) => {
-                                    temp_unit.parts.push({ functionResponse: { name: toolResponse.name, response: toolResponse.response } });
-                                });
-                            }
-                            retryContent2.push(temp_unit);
-                            last_retry_unit2 = temp_unit;
-                        }
-                    });
-                    
-                    retryRequest.contents = retryContent2;
-                    
-                    if (llmSource === 'deepseek') {
-                        response = await callDeepSeekTemp(
-                            retryRequest,
-                            readIni(path.join(__dirname, '../../../library_source.ini'), 'deepseek_api_sky'),
-                            now_policy.model,
-                            "https://api.deepseek.com"
-                        );
-                    } else {
-                        response = await callGoogleLLM(
-                            retryRequest,
-                            retryKey?.key || readIni(path.join(__dirname, '../../../library_source.ini'), 'google_api_key'),
-                            now_policy.model,
-                            retryKey?.baseUrl || readIni(path.join(__dirname, '../../../library_source.ini'), 'google_base_url')
-                        );
-                    }
-                }//请求失败的重试循环
-                
-                // 如果所有API都尝试过仍返回空内容，抛出错误
-                if (!response.text && (!response.functionCalls || response.functionCalls.length === 0)) {
-                    console.error('❌ 所有 API 源都返回空内容');
-                    throw new Error('所有 API 源都返回空内容，请检查服务状态');
-                }
-            }//函数调用的流程循环
-            
-            // 检查是否超过最大循环次数
-            if (functionCallLoopCount >= maxFunctionCallLoops) {
-                console.error(`❌ 超过最大 function call 循环次数 (${maxFunctionCallLoops})`);
-                throw new Error('模型连续返回 function calls，超过最大处理次数');
-            }
-            
-            // 只有在有文本内容时才添加消息
-            if (response.text && response.text.trim() !== '') {
-                console.log(response.text);
-                addMessageFromString(
-                    remove_timestamp(response.text),
-                    "model",
-                    "cyanAI"
-                );
-            } else if (response.functionCalls && response.functionCalls.length > 0) {
-                // 如果只有 function call 没有文本，不应该到达这里，因为上面已经处理了
-                console.log('⚠️ 模型只返回了 function call，没有文本');
-            }
-            //然后存下文件
-            saveCoreStateForFile()
-            input_for_uid(final_output_pipe_source_uid,response.text,"string")
-            main_virtual_busy = false;
-            process_waiting().catch((error: any) => {
-                console.error('process_waiting调用失败:', error);
-            });
-            return "SUCCESS:回复正常"
-        }catch(error: any){
-            console.error('sendAll 错误:', error);
-            main_virtual_busy = false;
-            process_waiting().catch((error: any) => {
-                console.error('process_waiting调用失败:', error);
-            });
-            return "ERROR:状态合法但是发生错误"
+    let core_send_result:string = ""
+    try{
+        if(now_policy.mode === "memory_less"){
+            core_send_result =  await core_send_memory_less();
+        }else if(now_policy.mode === "chat"){
+            core_send_result = await core_send_chat();
+        }else{
+            console.error("未定义的模式:", now_policy.mode);
+            core_send_result =  "ERROR:未定义的模式";
         }
-        
+    }catch{
+        main_virtual_busy=false;
+        console.error("SendAll发生错误")
+        return "ERROR:sendAll发生错误"
     }
-    main_virtual_busy = false;
-    process_waiting().catch((error: any) => {
-        console.error('process_waiting调用失败:', error);
-    });
-    
-    return "ERROR:当前状态不合法"
+
+    main_virtual_busy=false;
+    input_for_uid(final_output_pipe_source_uid,last_response,"string")//以核心的名义作为source发送信息
+    saveCoreStateForFile()
+    return core_send_result;
 }//这个函数发送当前的的上下文状态给模型,并且模型的回复会添加在main_status的上下文里，返回的只是执行状态
 //修改:sendAll会调用
 let final_output_pipe_source_uid = creat_source("main_virtual_final_output", "string")
@@ -1359,6 +779,7 @@ class status_stack
             return false;
         main_status = JSON.parse(JSON.stringify(this.data[this.data.length - 1]))
         this.data.pop();
+        saveCoreStateForFile()
         return true
     }//跳出，成功则返回true
     public clear():void{
@@ -1430,7 +851,7 @@ export function takeover_break():boolean{
     return result;
 }
 // #endregion
-// #region 不同模式的核心send函数
+// #region 不同模式的核心send函数，以及策略组相关代码
 let now_policy:policy_group = {
     mode: "tiny",
     temperature: 0.7,
@@ -1460,15 +881,42 @@ let now_policy:policy_group = {
     max_events: 100,
     events_threshold: 0,
     events_Tw_normalization_factor: 0,
-    dynamic_pipe_node: "",
+    dynamic_pipe_node: "default.ts",
     max_token: 4096,
     model: "gemini-3-pro-preview",
     model_type: "gemini"
 };
+let last_response:string=""
+async function read_policy_group_for_source_file(file_path:string)
+{
+    //通过文件读取策略组
+    now_policy = readPolicyGroup(file_path)
+    //重载管道
+    console.log("正在切换策略组")
+    if(now_policy.dynamic_pipe_node){
+        clear_pipes_converter();
+        const dynamicPipeNodePath = readIni(path.join(__dirname,'../../../library_source.ini'),'dynamic_pipe_node_file');
+        const fullPath = path.join(dynamicPipeNodePath, now_policy.dynamic_pipe_node);
+        const dynamicPipe = await import(fullPath);
+        await dynamicPipe.run_dynamic_pipe_node();
+    }
+    console.log("策略组切换完成")
+}
+async function read_policy_group(name:string)
+{
+    const policyGroupBasePath = readIni(path.join(__dirname,'../../../library_source.ini'),'policy_group_file');
+    let fileName = name;
+    const ext = path.extname(name).toLowerCase();
+    if(ext === '.json'){
+        fileName = name.slice(0, -5);
+    }
+    const fullPath = path.join(policyGroupBasePath, fileName + '.json');
+    await read_policy_group_for_source_file(fullPath);
+}
 async function core_send_memory_less()
 {
     main_status_stack.push();//压栈，准备回退
-    main_virtual_busy = true;//设置忙状态
+    //main_virtual_busy = true;//设置忙状态
     if(verify_context() && verify_chatable() && main_status)
     {
         try{
@@ -1477,8 +925,10 @@ async function core_send_memory_less()
             
             let system_temp_prompt = "";
             if(now_policy.system_prompt_generator){
-                const temp_system_generator = await import(now_policy.system_prompt_generator);
-                system_temp_prompt = temp_system_generator.get_system_prompt();//system_generator在代码里导入main_virtual.ts的各种信息
+                const systemPromptPath = readIni(path.join(__dirname,'../../../library_source.ini'),'system_prompt_generator_file');
+                const fullPath = path.join(systemPromptPath, now_policy.system_prompt_generator);
+                const temp_system_generator = await import(fullPath);
+                system_temp_prompt = temp_system_generator.get_system_prompt();
             }
             //系统提示词生成完成，载入对话记录
             let content_temp:content_unit[] = []
@@ -1791,8 +1241,8 @@ async function core_send_memory_less()
                     systemInstruction: system_temp_prompt,
                     contents: content_temp,
                     generationConfig: {
-                        temperature: 0,
-                        maxOutputTokens: 0
+                        temperature: now_policy.temperature,
+                        maxOutputTokens: now_policy.max_token
                     },
                     tools: toolsConfig
                 };
@@ -2006,14 +1456,14 @@ async function core_send_memory_less()
                         response = await callDeepSeekTemp(
                             retryRequest,
                             readIni(path.join(__dirname, '../../../library_source.ini'), 'deepseek_api_sky'),
-                            "deepseek-chat",
+                            now_policy.model,
                             "https://api.deepseek.com"
                         );
                     } else {
                         response = await callGoogleLLM(
                             retryRequest,
                             retryKey?.key || readIni(path.join(__dirname, '../../../library_source.ini'), 'google_api_key'),
-                            "gemini-3-pro-preview",
+                            now_policy.model,
                             retryKey?.baseUrl || readIni(path.join(__dirname, '../../../library_source.ini'), 'google_base_url')
                         );
                     }
@@ -2046,8 +1496,9 @@ async function core_send_memory_less()
             }
             //然后存下文件(这是memory_less,不用存文件)
             //saveCoreStateForFile()
-            input_for_uid(final_output_pipe_source_uid,response.text,"string")//以核心的名义作为source发送信息
-            main_virtual_busy = false;
+            //input_for_uid(final_output_pipe_source_uid,response.text,"string")//以核心的名义作为source发送信息
+            last_response=remove_timestamp(response.text)
+            //main_virtual_busy = false;
             process_waiting().catch((error: any) => {
                 console.error('process_waiting调用失败:', error);
             });
@@ -2055,7 +1506,7 @@ async function core_send_memory_less()
             return "SUCCESS:回复正常"
         }catch(error: any){
             console.error('sendAll 错误:', error);
-            main_virtual_busy = false;
+            //main_virtual_busy = false;
             process_waiting().catch((error: any) => {
                 console.error('process_waiting调用失败:', error);
             });
@@ -2064,7 +1515,7 @@ async function core_send_memory_less()
         }
         
     }
-    main_virtual_busy = false;
+    //main_virtual_busy = false;
     process_waiting().catch((error: any) => {
         console.error('process_waiting调用失败:', error);
     });
@@ -2073,5 +1524,622 @@ async function core_send_memory_less()
     main_status_stack.break();
     return "ERROR:当前状态不合法"
 }
+async function core_send_chat(){
+    main_virtual_busy = true;//设置忙状态
+    if(verify_context() && verify_chatable() && main_status)
+    {
+        try{
+            // 先处理图片总结
+            await processImageSummaries(now_policy.summary_turn_time,now_policy.image_max,now_policy.summary_turn);
+            
+            let system_temp_prompt = "";
+            if(now_policy.system_prompt_generator){
+                const systemPromptPath = readIni(path.join(__dirname,'../../../library_source.ini'),'system_prompt_generator_file');
+                const fullPath = path.join(systemPromptPath, now_policy.system_prompt_generator);
+                const temp_system_generator = await import(fullPath);
+                system_temp_prompt = temp_system_generator.get_system_prompt();
+            }
+            //系统提示词生成完成，载入对话记录
+            let content_temp:content_unit[] = []
+            let last_unit:content_unit|null = null    
+            for(const curr of main_status.context){
+                //检查是否可以和上一条合并（相同role_type）,即如果上一条是相同role_type合并
+                //上一条会记在在last_unit
+                if(last_unit && last_unit.role === curr.role_type) {
+                    //需要合并到上一条
+                    //合并到同一个content_unit的parts中
+                    if(curr.current !== "")
+                    {   
+                        let temp_text = "";
+                        temp_text += '^' + curr.role + ':' + curr.time + ':' + curr.current;
+                        last_unit.parts.push({text:temp_text});
+                    }//文本信息
+                    if(curr.inline.length !== 0)
+                        curr.inline.map((inlineUnit)=>{
+                            last_unit!.parts.push({inlineData:{mimeType:inlineUnit.mimeType,data:inlineUnit.data}});
+                        })//inline文件消息
+                    if(curr.file.length !== 0) {
+                        for(const filePath of curr.file) {
+                            const result = await fileToInlineData(filePath);
+                            if(result.success) {
+                                last_unit!.parts.push({inlineData:{mimeType:result.mimeType,data:result.data}});
+                            } else {
+                                last_unit!.parts.push({text:`[${(result as { success: false; reason: string }).reason}]`});
+                            }
+                        }
+                    }//file转换为inline文件
+                    // 处理工具调用（只有 model 类型的消息才有）
+                    if(curr.role_type === 'model' && curr.toolsCalls && curr.toolsCalls.length > 0) {
+                        curr.toolsCalls.map((toolCall) => {
+                            const part: any = {
+                                functionCall: {
+                                    name: `default_api:${toolCall.name}`,
+                                    args: toolCall.args
+                                }
+                            };
+                            if(toolCall.thoughtSignature) {
+                                part.thoughtSignature = toolCall.thoughtSignature;
+                            }
+                            last_unit!.parts.push(part);
+                        });
+                    }
+                    // 处理工具响应（只有 user 类型的消息才有）
+                    if(curr.role_type === 'user' && curr.toolsResponse && curr.toolsResponse.length > 0) {
+                        curr.toolsResponse.map((toolResponse) => {
+                            last_unit!.parts.push({functionResponse: {name: toolResponse.name, response: toolResponse.response}});
+                        });
+                    }
+                } else {
+                    //创建新的content_unit,不合并
+                    let temp_content_unit:content_unit = {
+                        role:curr.role_type,
+                        parts:[]
+                    }
+
+                    if(curr.current !== "")
+                    {   
+                        let temp_text = "";
+                        temp_text += '^' + curr.role + ':' + curr.time + ':' + curr.current;
+                        temp_content_unit.parts.push({text:temp_text});
+                    }//文本
+                    if(curr.inline.length !== 0)
+                        curr.inline.map((inlineUnit)=>{
+                            temp_content_unit.parts.push({inlineData:{mimeType:inlineUnit.mimeType,data:inlineUnit.data}});
+                        })//inline
+                    if(curr.file.length !== 0) {
+                        for(const filePath of curr.file) {
+                            const result = await fileToInlineData(filePath);
+                            if(result.success) {
+                                temp_content_unit.parts.push({inlineData:{mimeType:result.mimeType,data:result.data}});
+                            } else {
+                                temp_content_unit.parts.push({text:`[${(result as { success: false; reason: string }).reason}]`});
+                            }
+                        }
+                    }//file->inline
+                    // 处理工具调用（只有 model 类型的消息才有）
+                    if(curr.role_type === 'model' && curr.toolsCalls && curr.toolsCalls.length > 0) {
+                        curr.toolsCalls.map((toolCall) => {
+                            const part: any = {
+                                functionCall: {
+                                    name: `default_api:${toolCall.name}`,
+                                    args: toolCall.args
+                                }
+                            };
+                            if(toolCall.thoughtSignature) {
+                                part.thoughtSignature = toolCall.thoughtSignature;
+                            }
+                            temp_content_unit.parts.push(part);
+                        });
+                    }
+                    // 处理工具响应（只有 user 类型的消息才有）
+                    if(curr.role_type === 'user' && curr.toolsResponse && curr.toolsResponse.length > 0) {
+                        curr.toolsResponse.map((toolResponse) => {
+                            temp_content_unit.parts.push({functionResponse: {name: toolResponse.name, response: toolResponse.response}});
+                        });
+                    }
+                    
+                    content_temp.push(temp_content_unit);
+                    last_unit = temp_content_unit;
+                }//构造单条信息的上下文
+            }
+            //载入完成
+            // 从 tools_files 和 direct_tools 读取 tools 配置
+            /*不读取tools
+            let toolsConfig: any[] = [];
+            
+            try {
+                const erogenousZonePath = readIni(path.join(__dirname,'../../../library_source.ini'),'erogenous_zone_file');
+                
+                for(const toolFile of now_policy.tools_files){
+                    const toolPath = path.join(erogenousZonePath, toolFile);
+                    if(fs.existsSync(toolPath)){
+                        const toolContent = fs.readFileSync(toolPath, 'utf-8');
+                        const toolData = JSON.parse(toolContent);
+                        if(Array.isArray(toolData)){
+                            for(const tool of toolData){
+                                if(now_policy.direct_tools.includes(tool.name)){
+                                    toolsConfig.push(tool);
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('读取 tools 配置失败:', error);
+                toolsConfig = [];
+            }//读取tools,并且把direct_tools加载入上下文
+            *///不读取tools
+            const request:EasyGeminiRequest = {
+                systemInstruction : system_temp_prompt,
+                contents : content_temp,
+                generationConfig:{
+                    temperature:now_policy.temperature,
+                    maxOutputTokens:now_policy.max_token
+                },
+                tools: []
+            }//发出请求
+            //console.log(request.contents[0].parts[0].text)
+            const llmSource = now_policy.model_type;
+            let response: EasyGeminiResponse;
+            if (llmSource === 'deepseek') {
+                response = await callDeepSeekTemp(
+                    request,
+                    readIni(path.join(__dirname,'../../../library_source.ini'),'deepseek_api_sky'),
+                    now_policy.model,
+                    "https://api.deepseek.com"
+                );
+            } else {
+                response = await callGoogleLLM(
+                    request,
+                    readIni(path.join(__dirname,'../../../library_source.ini'),'google_api_key'),
+                    now_policy.model,
+                    readIni(path.join(__dirname,'../../../library_source.ini'),'google_base_url')
+                );
+            }//调用LLM模型
+            /*
+1. gemini-3.1-pro-preview - 最新的 Pro 版本预览，功能最全面
+2. gemini-3-pro-preview - 当前代码中使用的模型，性能和功能都很强大
+3. gemini-3-flash-preview - 最新的 Flash 版本，响应速度更快
+### 稳定版本模型
+1. gemini-2.5-pro - 稳定的 Pro 版本，平衡了性能和功能
+2. gemini-2.5-flash - 稳定的轻量版本，响应速度快
+3. gemini-2.0-flash - 较早的轻量版本，适合简单任务
+### 其他特殊模型
+             */
+            // 检查是否有函数调用
+            // 如果第一次请求返回空内容，进行重试和API切换
+            let initialRetryCount = 0;
+            const initialMaxRetries = 3;
+            let currentKey = getApiKeyManager().getCurrentKey();
+            
+            while (!response.text && (!response.functionCalls || response.functionCalls.length === 0)) {
+                initialRetryCount++;
+                
+                if (initialRetryCount <= initialMaxRetries) {
+                    console.log(`⚠️ 请求返回空内容，正在重新请求... (第 ${initialRetryCount} 次重试)`);
+                } else {
+                    // 重试3次后切换API
+                    console.log(`⚠️ 重试 ${initialMaxRetries} 次后仍返回空内容，尝试切换 API 源...`);
+                    const nextKey = getApiKeyManager().switchToNextKey();
+                    
+                    if (!nextKey) {
+                        console.error('❌ 所有 API 源都已尝试，无法获取有效响应');
+                        throw new Error('所有 API 源都返回空内容，请检查服务状态');
+                    }
+                    
+                    currentKey = nextKey;
+                    console.log(`🔄 已切换到 API key ${currentKey?.priority}`);
+                    initialRetryCount = 1; // 重置重试计数
+                }
+                
+                if (llmSource === 'deepseek') {
+                    response = await callDeepSeekTemp(
+                        request,
+                        readIni(path.join(__dirname,'../../../library_source.ini'),'deepseek_api_sky'),
+                        now_policy.model,
+                        "https://api.deepseek.com"
+                    );
+                } else {
+                    response = await callGoogleLLM(
+                        request,
+                        currentKey.key,
+                        now_policy.model,
+                        currentKey.baseUrl,
+                    );
+                }//调用模型
+            }//失败的重试逻辑
+            
+            // 处理 function calls 的循环，直到模型返回文本
+            let functionCallLoopCount = 0;
+            const maxFunctionCallLoops = 15; // 防止无限循环
+            let thoughtSignatureRetryCount = 0;
+            const maxThoughtSignatureRetries = 3;
+            /*
+            while (response.functionCalls && response.functionCalls.length > 0 && functionCallLoopCount < maxFunctionCallLoops) {
+                functionCallLoopCount++;
+                console.log(`🔄 处理第 ${functionCallLoopCount} 轮 function calls`);
+                
+                // 检查所有 functionCall 是否都有 thoughtSignature
+                const missingSignatureCall = response.functionCalls.find(fc => !fc.thoughtSignature);
+                if (missingSignatureCall) {
+                    thoughtSignatureRetryCount++;
+                    if (thoughtSignatureRetryCount > maxThoughtSignatureRetries) {
+                        const errorMsg = `错误：函数调用 ${missingSignatureCall.name} 缺少 thoughtSignature 字段，已重试 ${maxThoughtSignatureRetries} 次`;
+                        console.log('❌', errorMsg);
+                        throw new Error(errorMsg);
+                    }
+                    console.log(`⚠️ thoughtSignature 缺失，重新请求... (第 ${thoughtSignatureRetryCount} 次重试)`);
+                    
+                    // 重新请求 LLM
+                    if (llmSource === 'deepseek') {
+                        response = await callDeepSeekTemp(
+                            request,
+                            readIni(path.join(__dirname, '../../../library_source.ini'), 'deepseek_api_sky'),
+                            now_policy.model,
+                            "https://api.deepseek.com"
+                        );
+                    } else {
+                        response = await callGoogleLLM(
+                            request,
+                            currentKey?.key || readIni(path.join(__dirname, '../../../library_source.ini'), 'google_api_key'),
+                            now_policy.model,
+                            currentKey?.baseUrl || readIni(path.join(__dirname, '../../../library_source.ini'), 'google_base_url')
+                        );
+                    }
+                    continue;
+                }
+                
+                // 重置计数器（成功获取到 thoughtSignature）
+                thoughtSignatureRetryCount = 0;
+                
+                // 为每个函数调用生成响应
+                for (const functionCall of response.functionCalls) {
+
+                    // 记录函数调用（由 model 发出）
+                    const functionCallMessage: Message = {
+                        current: '',
+                        role_type: 'model',
+                        role: 'cyanAI',
+                        time: now(),
+                        file: [],
+                        inline: [],
+                        toolsCalls: [{
+                            name: functionCall.name.replace('default_api:', ''),
+                            args: functionCall.args,
+                            thoughtSignature: functionCall.thoughtSignature
+                        }],
+                        toolsResponse: []
+                    };
+                    main_status?.context.push(functionCallMessage);
+                    // 调用工具
+                    let toolResult = `成功调用了功能：${functionCall.name}`;
+                    try {
+                        // 从 args 中获取 requirement_text
+                        const requirementText = functionCall.args?.requirement_text || functionCall.args?.text || JSON.stringify(functionCall.args);
+                        const toolName = functionCall.name.replace('default_api:', '');
+                        console.log(`调用工具 ${toolName}，参数：`, functionCall.args);
+                        // 从 args 中获取 wait_mode，默认为 true
+                        const waitMode = functionCall.args?.wait_mode ?? true;
+                        // 调用 tool_process.ts 执行工具
+                        toolResult = await excuteTool(toolName, requirementText, waitMode);
+                        console.log(`工具 ${toolName} 执行结果：`, toolResult);
+                    } catch (error: any) {
+                        console.error(`工具调用失败：`, error);
+                        toolResult = `工具调用失败：${error.message || '未知错误'}`;
+                    }
+                    // 生成成功响应（由 user 发出）
+                    const functionResponseMessage: Message = {
+                        current: '',
+                        role_type: 'user',
+                        role: 'system',
+                        time: now(),
+                        file: [],
+                        inline: [],
+                        toolsCalls: [],
+                        toolsResponse: [{
+                            name: functionCall.name,
+                            response: {
+                                result: toolResult
+                            }
+                        }]
+                    };
+                    main_status?.context.push(functionResponseMessage);
+                }
+                
+                // 重新发送请求继续对话
+                const retryRequest: EasyGeminiRequest = {
+                    systemInstruction: system_temp_prompt,
+                    contents: content_temp,
+                    generationConfig: {
+                        temperature: now_policy.temperature,
+                        maxOutputTokens: now_policy.max_token
+                    },
+                    tools: toolsConfig
+                };
+                
+                // 重新构建内容，包含函数调用和响应
+                // 使用与初始构建相同的合并逻辑
+                const retryContent: content_unit[] = [];
+                let last_retry_unit: content_unit | null = null;
+                
+                main_status?.context.map((curr) => {
+                    // 检查是否可以和上一条合并（相同role_type）
+                    if (last_retry_unit && last_retry_unit.role === curr.role_type) {
+                        // 合并到同一个content_unit的parts中
+                        if (curr.current !== "") {
+                            const temp_text = '^' + curr.role + ':' + curr.time + ':' + curr.current;
+                            last_retry_unit.parts.push({ text: temp_text });
+                        }
+                        
+                        if (curr.inline.length !== 0) {
+                            curr.inline.map((inlineUnit) => {
+                                last_retry_unit!.parts.push({ inlineData: { mimeType: inlineUnit.mimeType, data: inlineUnit.data } });
+                            });
+                        }
+                        
+                        // 处理工具调用（只有 model 类型的消息才有）
+                        if (curr.role_type === 'model' && curr.toolsCalls && curr.toolsCalls.length > 0) {
+                            curr.toolsCalls.map((toolCall) => {
+                                const part: any = {
+                                    functionCall: {
+                                        name: `default_api:${toolCall.name}`,
+                                        args: toolCall.args
+                                    }
+                                };
+                                if (toolCall.thoughtSignature) {
+                                    part.thoughtSignature = toolCall.thoughtSignature;
+                                }
+                                last_retry_unit!.parts.push(part);
+                            });
+                        }
+                        
+                        // 处理工具响应（只有 user 类型的消息才有）
+                        if (curr.role_type === 'user' && curr.toolsResponse && curr.toolsResponse.length > 0) {
+                            curr.toolsResponse.map((toolResponse) => {
+                                last_retry_unit!.parts.push({ functionResponse: { name: toolResponse.name, response: toolResponse.response } });
+                            });
+                        }
+                    } else {
+                        // 创建新的content_unit
+                        const temp_unit: content_unit = {
+                            role: curr.role_type,
+                            parts: []
+                        };
+                        
+                        if (curr.current !== "") {
+                            const temp_text = '^' + curr.role + ':' + curr.time + ':' + curr.current;
+                            temp_unit.parts.push({ text: temp_text });
+                        }
+                        
+                        if (curr.inline.length !== 0) {
+                            curr.inline.map((inlineUnit) => {
+                                temp_unit.parts.push({ inlineData: { mimeType: inlineUnit.mimeType, data: inlineUnit.data } });
+                            });
+                        }
+                        
+                        // 处理工具调用（只有 model 类型的消息才有）
+                        if (curr.role_type === 'model' && curr.toolsCalls && curr.toolsCalls.length > 0) {
+                            curr.toolsCalls.map((toolCall) => {
+                                const part: any = {
+                                    functionCall: {
+                                        name: `default_api:${toolCall.name}`,
+                                        args: toolCall.args
+                                    }
+                                };
+                                if (toolCall.thoughtSignature) {
+                                    part.thoughtSignature = toolCall.thoughtSignature;
+                                }
+                                temp_unit.parts.push(part);
+                            });
+                        }
+                        
+                        // 处理工具响应（只有 user 类型的消息才有）
+                        if (curr.role_type === 'user' && curr.toolsResponse && curr.toolsResponse.length > 0) {
+                            curr.toolsResponse.map((toolResponse) => {
+                                temp_unit.parts.push({ functionResponse: { name: toolResponse.name, response: toolResponse.response } });
+                            });
+                        }
+                        
+                        retryContent.push(temp_unit);
+                        last_retry_unit = temp_unit;
+                    }
+                });//构造上下文
+                
+                retryRequest.contents = retryContent;
+                
+                if (llmSource === 'deepseek') {
+                    response = await callDeepSeekTemp(
+                        retryRequest,
+                        readIni(path.join(__dirname, '../../../library_source.ini'), 'deepseek_api_sky'),
+                        now_policy.model,
+                        "https://api.deepseek.com"
+                    );
+                } else {
+                    response = await callGoogleLLM(
+                        retryRequest,
+                        readIni(path.join(__dirname, '../../../library_source.ini'), 'google_api_key'),
+                        now_policy.model,
+                        readIni(path.join(__dirname, '../../../library_source.ini'), 'google_base_url')
+                    );
+                }//发送请求
+                
+                // 如果返回空内容，继续重新请求（重试+切换API）
+                let retryCount = 0;
+                const maxRetries = 3;
+                let retryKey = currentKey; // 使用当前key
+                
+                while (!response.text && (!response.functionCalls || response.functionCalls.length === 0)) {
+                    retryCount++;
+                    
+                    if (retryCount <= maxRetries) {
+                        console.log(`⚠️ 模型返回空内容，正在重新请求... (第 ${retryCount} 次重试)`);
+                    } else {
+                        // 重试3次后切换API
+                        console.log(`⚠️ 重试 ${maxRetries} 次后仍返回空内容，尝试切换 API 源...`);
+                        const nextKey = getApiKeyManager().switchToNextKey();
+                        
+                        if (!nextKey) {
+                            console.error('❌ 所有 API 源都已尝试，无法获取有效响应');
+                            throw new Error('所有 API 源都返回空内容，请检查服务状态');
+                        }
+                        
+                        retryKey = nextKey;
+                        console.log(`🔄 已切换到 API key ${retryKey?.priority}`);
+                        retryCount = 1; // 重置重试计数
+                    }
+                    
+                    // 重新构建内容
+                    const retryContent2: content_unit[] = [];
+                    let last_retry_unit2: content_unit | null = null;
+                    
+                    main_status?.context.map((curr) => {
+                        if (last_retry_unit2 && last_retry_unit2.role === curr.role_type) {
+                            if (curr.current !== "") {
+                                const temp_text = '^' + curr.role + ':' + curr.time + ':' + curr.current;
+                                last_retry_unit2.parts.push({ text: temp_text });
+                            }
+                            if (curr.inline.length !== 0) {
+                                curr.inline.map((inlineUnit) => {
+                                    last_retry_unit2!.parts.push({ inlineData: { mimeType: inlineUnit.mimeType, data: inlineUnit.data } });
+                                });
+                            }
+                            if (curr.role_type === 'model' && curr.toolsCalls && curr.toolsCalls.length > 0) {
+                                curr.toolsCalls.map((toolCall) => {
+                                    const part: any = {
+                                        functionCall: {
+                                            name: `default_api:${toolCall.name}`,
+                                            args: toolCall.args
+                                        }
+                                    };
+                                    if (toolCall.thoughtSignature) {
+                                        part.thoughtSignature = toolCall.thoughtSignature;
+                                    }
+                                    last_retry_unit2!.parts.push(part);
+                                });
+                            }
+                            if (curr.role_type === 'user' && curr.toolsResponse && curr.toolsResponse.length > 0) {
+                                curr.toolsResponse.map((toolResponse) => {
+                                    last_retry_unit2!.parts.push({ functionResponse: { name: toolResponse.name, response: toolResponse.response } });
+                                });
+                            }
+                        } else {
+                            const temp_unit: content_unit = {
+                                role: curr.role_type,
+                                parts: []
+                            };
+                            if (curr.current !== "") {
+                                const temp_text = '^' + curr.role + ':' + curr.time + ':' + curr.current;
+                                temp_unit.parts.push({ text: temp_text });
+                            }
+                            if (curr.inline.length !== 0) {
+                                curr.inline.map((inlineUnit) => {
+                                    temp_unit.parts.push({ inlineData: { mimeType: inlineUnit.mimeType, data: inlineUnit.data } });
+                                });
+                            }
+                            if (curr.role_type === 'model' && curr.toolsCalls && curr.toolsCalls.length > 0) {
+                                curr.toolsCalls.map((toolCall) => {
+                                    const part: any = {
+                                        functionCall: {
+                                            name: `default_api:${toolCall.name}`,
+                                            args: toolCall.args
+                                        }
+                                    };
+                                    if (toolCall.thoughtSignature) {
+                                        part.thoughtSignature = toolCall.thoughtSignature;
+                                    }
+                                    temp_unit.parts.push(part);
+                                });
+                            }
+                            if (curr.role_type === 'user' && curr.toolsResponse && curr.toolsResponse.length > 0) {
+                                curr.toolsResponse.map((toolResponse) => {
+                                    temp_unit.parts.push({ functionResponse: { name: toolResponse.name, response: toolResponse.response } });
+                                });
+                            }
+                            retryContent2.push(temp_unit);
+                            last_retry_unit2 = temp_unit;
+                        }
+                    });
+                    
+                    retryRequest.contents = retryContent2;
+                    
+                    if (llmSource === 'deepseek') {
+                        response = await callDeepSeekTemp(
+                            retryRequest,
+                            readIni(path.join(__dirname, '../../../library_source.ini'), 'deepseek_api_sky'),
+                            now_policy.model,
+                            "https://api.deepseek.com"
+                        );
+                    } else {
+                        response = await callGoogleLLM(
+                            retryRequest,
+                            retryKey?.key || readIni(path.join(__dirname, '../../../library_source.ini'), 'google_api_key'),
+                            now_policy.model,
+                            retryKey?.baseUrl || readIni(path.join(__dirname, '../../../library_source.ini'), 'google_base_url')
+                        );
+                    }
+                }//请求失败的重试循环
+                
+                // 如果所有API都尝试过仍返回空内容，抛出错误
+                if (!response.text && (!response.functionCalls || response.functionCalls.length === 0)) {
+                    console.error('❌ 所有 API 源都返回空内容');
+                    throw new Error('所有 API 源都返回空内容，请检查服务状态');
+                }
+            }//函数调用的流程循环
+            
+            // 检查是否超过最大循环次数
+            if (functionCallLoopCount >= maxFunctionCallLoops) {
+                console.error(`❌ 超过最大 function call 循环次数 (${maxFunctionCallLoops})`);
+                throw new Error('模型连续返回 function calls，超过最大处理次数');
+            }
+            */
+            // 只有在有文本内容时才添加消息,但是这里其实是必然
+            if (response.text && response.text.trim() !== '') {
+                console.log(response.text);
+                addMessageFromString(
+                    remove_timestamp(response.text),
+                    "model",
+                    "cyanAI"
+                );
+            } else if (response.functionCalls && response.functionCalls.length > 0) {
+                // 如果只有 function call 没有文本，不应该到达这里，因为上面已经处理了
+                console.log('⚠️ 模型只返回了 function call，没有文本');
+            }
+            //然后存下文件(这是memory_less,不用存文件)
+            //saveCoreStateForFile()
+            //input_for_uid(final_output_pipe_source_uid,response.text,"string")//以核心的名义作为source发送信息
+            last_response=remove_timestamp(response.text)
+            //main_virtual_busy = false;
+            process_waiting().catch((error: any) => {
+                console.error('process_waiting调用失败:', error);
+            });
+            main_status_stack.break();
+            return "SUCCESS:回复正常"
+        }catch(error: any){
+            console.error('sendAll 错误:', error);
+            //main_virtual_busy = false;
+            process_waiting().catch((error: any) => {
+                console.error('process_waiting调用失败:', error);
+            });
+            main_status_stack.break();
+            return "ERROR:状态合法但是发生错误"
+        }
+        
+    }
+    //main_virtual_busy = false;
+    process_waiting().catch((error: any) => {
+        console.error('process_waiting调用失败:', error);
+    });
+    
+    
+    main_status_stack.break();
+    return "ERROR:当前状态不合法"
+
+}
 // #endregion
 
+// #region 这里是初始化函数
+export async function init(){
+    //read_policy_group("default");
+    await read_policy_group("solo_qq_chat");
+}
+// #endregion

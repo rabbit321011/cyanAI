@@ -1,0 +1,40 @@
+{
+  "mode": "tiny",
+  "temperature": 0.7,
+  "monologue": true,
+  "monologue_summary_turn": 0,
+  "monologue_summary_turn_precision": 0,
+  "summary_turn": 0,
+  "summary_turn_time": "10min",
+  "summary_turn_precision": 0,
+  "image_max": 10,
+  "video_max": 10,
+  "audio_max": 10,
+  "multimedia_max": 10,
+  "tools_files": [
+    "main_virtual\\main.json"
+  ],
+  "talk_commands": [],
+  "talk_description_file": "",
+  "direct_tools": [
+    "default_api:any-example",
+    "default_api:main-virtual-speak",
+    "default_api:send_QQ_message"
+  ],
+  "auto_rag_topk": 0,
+  "auto_reranker_mode": "bge",
+  "auto_emerge_rate": 0,
+  "auto_emerge_frequency": 0,
+  "workspace": false,
+  "pull_info": false,
+  "step_progress": false,
+  "change_policy_group": [],
+  "system_prompt_generator": "default.ts",
+  "max_events": 100,
+  "events_threshold": 0,
+  "events_Tw_normalization_factor": 0,
+  "dynamic_pipe_node": "default.ts",
+  "max_token": 4096,
+  "model": "gemini-3.1-pro-preview",
+  "model_type": "gemini"
+}
